@@ -7,6 +7,7 @@ import HighlightConfig from '@/components/HighlightConfig';
 import VideoPlayer from '@/components/VideoPlayer';
 import ApiKeyConfig from '@/components/ApiKeyConfig';
 import Header from '@/components/layout/Header';
+import ProcessingLog from '@/components/ProcessingLog';
 import { useOpenAI } from '@/hooks/useOpenAI';
 import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, ProgressState, VideoSegment, VideoMetadata } from '@/types';
 import { getVideoMetadata, extractFrames, createHighlightVideo, createPlatformSpecificVideos } from '@/lib/utils/video-utils';
@@ -37,20 +38,96 @@ export default function Home() {
 
     const handleVideoSelected = async (file: File) => {
         try {
-            setProgress({ status: 'uploading', progress: 0 });
+            console.log('Video file selected:', file.name, 'Size:', (file.size / (1024 * 1024)).toFixed(2) + 'MB', 'Type:', file.type);
+
+            // Create a custom function to update progress with logging
+            const updateProgress = (status: ProgressState['status'], progress: number, message?: string) => {
+                console.log(`Progress Update: ${status} - ${progress}% - ${message || ''}`);
+                setProgress({ status, progress, message });
+            };
+
+            updateProgress('uploading', 0, 'Starting upload process...');
             setVideoFile(file);
 
             // Create object URL for the video
             const url = URL.createObjectURL(file);
             setVideoUrl(url);
+            console.log('Video URL created for preview:', url);
 
             // Get video metadata
-            setProgress({ status: 'uploading', progress: 30, message: 'Analyzing video...' });
-            const metadata = await getVideoMetadata(file);
-            setVideoMetadata(metadata);
+            try {
+                updateProgress('uploading', 30, 'Analyzing video metadata...');
+                console.log('Getting video metadata...');
+                const metadata = await getVideoMetadata(file);
+                console.log('Video metadata retrieved successfully:', metadata);
+                setVideoMetadata(metadata);
+                updateProgress('idle', 100, 'Video ready for processing');
+            } catch (metadataError) {
+                console.error('Error getting video metadata:', metadataError);
 
-            setProgress({ status: 'idle', progress: 100 });
+                // Attempt to get basic metadata through a fallback approach
+                updateProgress('uploading', 40, 'Using fallback method for video analysis...');
+
+                // Create a simple video element to try to get basic metadata
+                const video = document.createElement('video');
+                video.muted = true;
+
+                // We'll create a new object URL to be safe
+                URL.revokeObjectURL(url);
+                const newUrl = URL.createObjectURL(file);
+                video.src = newUrl;
+
+                try {
+                    await new Promise<void>((resolve, reject) => {
+                        // Add timeout for the fallback
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Timeout loading video metadata via fallback'));
+                        }, 10000);
+
+                        video.onloadedmetadata = () => {
+                            clearTimeout(timeout);
+                            const fallbackMetadata = {
+                                duration: video.duration || 0,
+                                width: video.videoWidth || 640,
+                                height: video.videoHeight || 360,
+                                fps: 30 // Assumed
+                            };
+
+                            console.log('Fallback metadata retrieved:', fallbackMetadata);
+                            setVideoMetadata(fallbackMetadata);
+                            URL.revokeObjectURL(newUrl);
+                            resolve();
+                        };
+
+                        video.onerror = () => {
+                            clearTimeout(timeout);
+                            URL.revokeObjectURL(newUrl);
+                            reject(new Error('Failed to load video metadata via fallback'));
+                        };
+
+                        // Try to load the video
+                        video.load();
+                    });
+
+                    updateProgress('idle', 100, 'Video ready for processing (using fallback metadata)');
+                } catch (fallbackError) {
+                    console.error('Fallback metadata retrieval failed:', fallbackError);
+
+                    // Use default metadata as last resort
+                    const defaultMetadata = {
+                        duration: 60, // Assume 1 minute
+                        width: 640,
+                        height: 360,
+                        fps: 30
+                    };
+
+                    console.log('Using default metadata as fallback:', defaultMetadata);
+                    setVideoMetadata(defaultMetadata);
+                    updateProgress('idle', 100, 'Video ready for processing (using estimated metadata)');
+                }
+            }
         } catch (err) {
+            console.error('Error during video upload:', err);
             setProgress({
                 status: 'error',
                 progress: 0,
@@ -66,6 +143,15 @@ export default function Home() {
     const processVideo = async () => {
         if (!videoFile || !videoMetadata) return;
 
+        // Add a test log to check if console logging is working
+        console.log("DEBUG: Starting processVideo function");
+
+        // Create a custom function to update progress with logging
+        const updateProgress = (status: ProgressState['status'], progress: number, message?: string) => {
+            console.log(`Progress Update: ${status} - ${progress}% - ${message || ''}`);
+            setProgress({ status, progress, message });
+        };
+
         try {
             // Create a new processed video object
             const videoId = uuidv4();
@@ -76,23 +162,50 @@ export default function Home() {
                 highlightConfig,
             });
 
+            // Log start of process
+            console.log('--- Starting video processing ---');
+            console.log(`Video ID: ${videoId}`);
+            console.log(`Video duration: ${videoMetadata.duration.toFixed(2)}s`);
+            console.log(`Resolution: ${videoMetadata.width}x${videoMetadata.height}`);
+            console.log(`Highlight mode: ${highlightConfig.mode}`);
+            console.log(`Target platform: ${highlightConfig.targetPlatform}`);
+
             // Extract audio and transcribe
-            setProgress({ status: 'transcribing', progress: 0, message: 'Extracting audio...' });
+            updateProgress('transcribing', 0, 'Extracting audio...');
+            console.log('Step 1: Extracting audio from video');
 
             // TODO: In a production app, we would extract audio to a smaller file first
             // For now, we'll just use the video file directly
-            setProgress({ status: 'transcribing', progress: 20, message: 'Transcribing audio...' });
+            console.log('Step 2: Starting transcription');
+            updateProgress('transcribing', 20, 'Transcribing audio...');
+
+            const transcriptionStart = performance.now();
             const transcriptionResult = await transcribeAudio(videoFile);
+            const transcriptionTime = ((performance.now() - transcriptionStart) / 1000).toFixed(2);
+
             setTranscript(transcriptionResult.text);
-            setProgress({ status: 'transcribing', progress: 50, message: 'Transcription complete' });
+            console.log(`Transcription completed in ${transcriptionTime}s`);
+            console.log(`Transcript length: ${transcriptionResult.text.length} characters`);
+
+            updateProgress('transcribing', 50, 'Transcription complete');
 
             // Find highlights based on transcript
-            setProgress({ status: 'analyzing', progress: 60, message: 'Finding highlights...' });
+            console.log('Step 3: Analyzing transcript for highlights');
+            updateProgress('analyzing', 60, 'Finding highlights...');
+
+            const highlightsStart = performance.now();
             const segments = await findHighlights(
                 transcriptionResult.text,
                 highlightConfig,
                 videoMetadata.duration
             );
+            const highlightsTime = ((performance.now() - highlightsStart) / 1000).toFixed(2);
+
+            console.log(`Highlight analysis completed in ${highlightsTime}s`);
+            console.log(`Found ${segments.length} segments for highlights`);
+            segments.forEach((segment, i) => {
+                console.log(`Segment ${i + 1}: ${segment.start.toFixed(2)}s - ${segment.end.toFixed(2)}s (${(segment.end - segment.start).toFixed(2)}s) - ${segment.description || 'No description'}`);
+            });
 
             // Update processed video with segments
             setProcessedVideo(prev => prev ? {
@@ -101,17 +214,34 @@ export default function Home() {
                 transcript: transcriptionResult.text,
             } : null);
 
-            setProgress({ status: 'processing', progress: 70, message: 'Generating highlight video...' });
+            updateProgress('processing', 70, 'Generating highlight video...');
+            console.log('Step 4: Generating highlight videos');
 
             // Generate the highlight video based on platform
             if (highlightConfig.targetPlatform === 'all') {
                 // Generate all formats
-                const outputs = await createPlatformSpecificVideos(videoFile, segments);
+                console.log('Creating videos for all platforms (YouTube, TikTok, Instagram)');
+                const processingStart = performance.now();
+
+                const outputs = await createPlatformSpecificVideos(
+                    videoFile,
+                    segments,
+                    (step, progress, detail) => {
+                        console.log(`Processing: ${step} - ${detail}`);
+                        // Scale progress from 70-95%
+                        const scaledProgress = 70 + (progress * 0.25);
+                        updateProgress('processing', scaledProgress, detail || `Processing video (${step})...`);
+                    }
+                );
+
+                const processingTime = ((performance.now() - processingStart) / 1000).toFixed(2);
+                console.log(`Video processing completed in ${processingTime}s`);
 
                 // Create object URLs for each output
                 const urls: Record<string, string> = {};
                 Object.entries(outputs).forEach(([platform, blob]) => {
                     urls[platform] = URL.createObjectURL(blob);
+                    console.log(`Created ${platform} video: ${(blob.size / (1024 * 1024)).toFixed(2)}MB`);
                 });
 
                 setHighlightUrls(urls);
@@ -130,24 +260,35 @@ export default function Home() {
                         break;
                 }
 
+                console.log(`Creating video for ${highlightConfig.targetPlatform} platform`);
+                const processingStart = performance.now();
+
                 const highlightVideo = await createHighlightVideo(
                     videoFile,
                     segments,
                     'mp4',
-                    dimensions
+                    dimensions,
+                    (step, progress, detail) => {
+                        console.log(`Processing: ${step} - ${detail}`);
+                        // Scale progress from 70-95%
+                        const scaledProgress = 70 + (progress * 0.25);
+                        updateProgress('processing', scaledProgress, detail || `Processing video (${step})...`);
+                    }
                 );
+
+                const processingTime = ((performance.now() - processingStart) / 1000).toFixed(2);
+                console.log(`Video processing completed in ${processingTime}s`);
+                console.log(`Output video size: ${(highlightVideo.size / (1024 * 1024)).toFixed(2)}MB`);
 
                 const highlightUrl = URL.createObjectURL(highlightVideo);
                 setHighlightUrls({ [highlightConfig.targetPlatform]: highlightUrl });
             }
 
-            setProgress({ status: 'completed', progress: 100, message: 'Highlight video ready!' });
+            console.log('--- Video processing complete ---');
+            updateProgress('completed', 100, 'Highlight video ready!');
         } catch (err) {
-            setProgress({
-                status: 'error',
-                progress: 0,
-                error: err instanceof Error ? err.message : 'Failed to process video'
-            });
+            console.error('Error during video processing:', err);
+            updateProgress('error', 0, err instanceof Error ? err.message : 'Failed to process video');
         }
     };
 
@@ -328,7 +469,15 @@ export default function Home() {
                         <ApiKeyConfig onApiKeyConfigured={handleApiConfigured} />
                     </div>
                 ) : (
-                    <>{renderMainContent()}</>
+                    <>
+                        {renderMainContent()}
+
+                        {/* ProcessingLog moved here so it's always rendered */}
+                        <ProcessingLog
+                            isProcessing={progress.status !== 'idle' && progress.status !== 'completed' && progress.status !== 'error'}
+                            latestMessage={progress.message}
+                        />
+                    </>
                 )}
             </div>
         </div>
