@@ -58,4 +58,8 @@ export interface FaceDetectionResult {
         width: number;
         height: number;
     };
+}
+
+export interface ApiKeyConfig {
+    apiKey: string
 } 

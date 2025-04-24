@@ -13,9 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HAI-Lights Maker - AI-Powered Video Highlight Generator",
-  description: "Create engaging highlight reels from long videos automatically using AI",
-  keywords: ["video editing", "AI", "highlights", "video generator", "automatic", "social media"],
+  title: "HAI-Lights Maker",
+  description: "Generate highlights from your videos in seconds with AI",
+  icons: {
+    icon: "/logo.svg",
+    apple: "/logo.svg",
+  }
 };
 
 export default function RootLayout({

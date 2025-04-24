@@ -5,13 +5,14 @@ import { v4 as uuidv4 } from 'uuid';
 import VideoUploader from '@/components/VideoUploader';
 import HighlightConfig from '@/components/HighlightConfig';
 import VideoPlayer from '@/components/VideoPlayer';
-import ApiKeyInput from '@/components/ApiKeyInput';
+import ApiKeyConfig from '@/components/ApiKeyConfig';
+import Header from '@/components/layout/Header';
 import { useOpenAI } from '@/hooks/useOpenAI';
-import { HighlightConfig as HighlightConfigType, ProcessedVideo, ProgressState, VideoSegment, VideoMetadata } from '@/types';
+import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, ProgressState, VideoSegment, VideoMetadata } from '@/types';
 import { getVideoMetadata, extractFrames, createHighlightVideo, createPlatformSpecificVideos } from '@/lib/utils/video-utils';
 
 export default function Home() {
-    const [apiKey, setApiKey] = useState<string>('');
+    const [apiConfig, setApiConfig] = useState<ApiKeyConfigType | null>(null);
     const [videoFile, setVideoFile] = useState<File | null>(null);
     const [videoUrl, setVideoUrl] = useState<string>('');
     const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
@@ -28,10 +29,10 @@ export default function Home() {
     const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
     const [transcript, setTranscript] = useState<string>('');
 
-    const { transcribeAudio, findHighlights, isLoading, error } = useOpenAI({ apiKey });
+    const { transcribeAudio, findHighlights, isLoading, error } = useOpenAI({ apiKey: apiConfig?.apiKey });
 
-    const handleApiKeyChange = (key: string) => {
-        setApiKey(key);
+    const handleApiConfigured = (config: ApiKeyConfigType) => {
+        setApiConfig(config);
     };
 
     const handleVideoSelected = async (file: File) => {
@@ -150,22 +151,12 @@ export default function Home() {
         }
     };
 
-    const renderStep = () => {
-        // Step 1: API Key
-        if (!apiKey) {
-            return (
-                <div className="max-w-2xl mx-auto w-full">
-                    <h2 className="text-2xl font-bold mb-6">Step 1: Configure API Key</h2>
-                    <ApiKeyInput onApiKeyChange={handleApiKeyChange} />
-                </div>
-            );
-        }
-
+    const renderMainContent = () => {
         // Step 2: Upload video
         if (!videoFile) {
             return (
                 <div className="max-w-2xl mx-auto w-full">
-                    <h2 className="text-2xl font-bold mb-6">Step 2: Upload Your Video</h2>
+                    <h2 className="text-2xl font-bold mb-6">Upload Your Video</h2>
                     <VideoUploader
                         onVideoSelected={handleVideoSelected}
                         isProcessing={progress.status !== 'idle'}
@@ -179,7 +170,7 @@ export default function Home() {
         if (videoFile && videoUrl && !processedVideo?.segments?.length) {
             return (
                 <div className="w-full">
-                    <h2 className="text-2xl font-bold mb-6">Step 3: Configure Highlight Settings</h2>
+                    <h2 className="text-2xl font-bold mb-6">Configure Highlight Settings</h2>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         <div>
@@ -328,34 +319,18 @@ export default function Home() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <header className="bg-white shadow-sm">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-900">HAI-Lights Maker</h1>
+        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+            <div className="container mx-auto px-4 py-12">
+                <Header />
 
-                    {apiKey && (
-                        <button
-                            onClick={() => setApiKey('')}
-                            className="text-sm text-gray-600 hover:text-gray-900"
-                        >
-                            Change API Key
-                        </button>
-                    )}
-                </div>
-            </header>
-
-            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {renderStep()}
-            </main>
-
-            <footer className="bg-white border-t border-gray-200 py-4">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center text-sm text-gray-600">
-                    <div>&copy; {new Date().getFullYear()} HAI-Lights Maker</div>
-                    <div className="flex gap-4">
-                        <a href="https://github.com/yourusername/hai-lights-maker" className="hover:text-blue-600">GitHub</a>
+                {!apiConfig ? (
+                    <div className="mb-8">
+                        <ApiKeyConfig onApiKeyConfigured={handleApiConfigured} />
                     </div>
-                </div>
-            </footer>
+                ) : (
+                    <>{renderMainContent()}</>
+                )}
+            </div>
         </div>
     );
 } 

@@ -75,6 +75,18 @@ pnpm dev
 4. Click "Generate Highlights" and wait for processing
 5. Preview and download your highlight reel
 
+## API Key Security
+
+HAI-Lights Maker implements several security measures to protect your OpenAI API key:
+
+- **Session-only storage**: Your API key is only stored in your browser's session storage and is automatically cleared when you close your browser tab.
+- **Client-side encryption**: Before storing, your API key is encrypted using a simple XOR cipher with a project-specific encryption key.
+- **Format validation**: The API key is validated to ensure it follows the correct OpenAI API key format (starting with 'sk-').
+- **Secure transmission**: Your API key is only transmitted between your browser and the API endpoints on this server, never to third-party services.
+- **Server-side validation**: Each API request validates the API key again before proceeding.
+
+> **Note**: While we take steps to protect your API key, for production use, consider implementing more robust security measures including rate limiting, proper secret management, and proxy services.
+
 ## Future Enhancements
 
 - Add support for audio analysis to detect applause, music, or emotional moments

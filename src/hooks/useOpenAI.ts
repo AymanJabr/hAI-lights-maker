@@ -14,6 +14,10 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
         setError(null);
 
         try {
+            if (!apiKey) {
+                throw new Error('API key is required');
+            }
+
             const formData = new FormData();
             formData.append('file', audioBlob, 'audio.mp3');
             formData.append('model', 'whisper-1');
@@ -29,7 +33,8 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
             });
 
             if (!response.ok) {
-                throw new Error(`Transcription failed: ${response.statusText}`);
+                const errorText = await response.text();
+                throw new Error(`Transcription failed: ${response.statusText}. ${errorText}`);
             }
 
             const result = await response.json();
@@ -52,6 +57,10 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
         setError(null);
 
         try {
+            if (!apiKey) {
+                throw new Error('API key is required');
+            }
+
             const promptMode = config.mode === 'custom'
                 ? config.customPrompt
                 : getPromptForMode(config.mode);
@@ -71,7 +80,8 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to generate highlights: ${response.statusText}`);
+                const errorText = await response.text();
+                throw new Error(`Failed to generate highlights: ${response.statusText}. ${errorText}`);
             }
 
             const highlightSegments = await response.json();
