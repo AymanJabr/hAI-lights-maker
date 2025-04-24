@@ -1,103 +1,361 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import VideoUploader from '@/components/VideoUploader';
+import HighlightConfig from '@/components/HighlightConfig';
+import VideoPlayer from '@/components/VideoPlayer';
+import ApiKeyInput from '@/components/ApiKeyInput';
+import { useOpenAI } from '@/hooks/useOpenAI';
+import { HighlightConfig as HighlightConfigType, ProcessedVideo, ProgressState, VideoSegment, VideoMetadata } from '@/types';
+import { getVideoMetadata, extractFrames, createHighlightVideo, createPlatformSpecificVideos } from '@/lib/utils/video-utils';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    const [apiKey, setApiKey] = useState<string>('');
+    const [videoFile, setVideoFile] = useState<File | null>(null);
+    const [videoUrl, setVideoUrl] = useState<string>('');
+    const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
+    const [highlightConfig, setHighlightConfig] = useState<HighlightConfigType>({
+        mode: 'highlights',
+        targetPlatform: 'youtube',
+        maxDuration: 60,
+    });
+    const [progress, setProgress] = useState<ProgressState>({
+        status: 'idle',
+        progress: 0,
+    });
+    const [processedVideo, setProcessedVideo] = useState<ProcessedVideo | null>(null);
+    const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
+    const [transcript, setTranscript] = useState<string>('');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    const { transcribeAudio, findHighlights, isLoading, error } = useOpenAI({ apiKey });
+
+    const handleApiKeyChange = (key: string) => {
+        setApiKey(key);
+    };
+
+    const handleVideoSelected = async (file: File) => {
+        try {
+            setProgress({ status: 'uploading', progress: 0 });
+            setVideoFile(file);
+
+            // Create object URL for the video
+            const url = URL.createObjectURL(file);
+            setVideoUrl(url);
+
+            // Get video metadata
+            setProgress({ status: 'uploading', progress: 30, message: 'Analyzing video...' });
+            const metadata = await getVideoMetadata(file);
+            setVideoMetadata(metadata);
+
+            setProgress({ status: 'idle', progress: 100 });
+        } catch (err) {
+            setProgress({
+                status: 'error',
+                progress: 0,
+                error: err instanceof Error ? err.message : 'Failed to load video'
+            });
+        }
+    };
+
+    const handleConfigChange = (config: HighlightConfigType) => {
+        setHighlightConfig(config);
+    };
+
+    const processVideo = async () => {
+        if (!videoFile || !videoMetadata) return;
+
+        try {
+            // Create a new processed video object
+            const videoId = uuidv4();
+            setProcessedVideo({
+                id: videoId,
+                originalFile: videoFile,
+                segments: [],
+                highlightConfig,
+            });
+
+            // Extract audio and transcribe
+            setProgress({ status: 'transcribing', progress: 0, message: 'Extracting audio...' });
+
+            // TODO: In a production app, we would extract audio to a smaller file first
+            // For now, we'll just use the video file directly
+            setProgress({ status: 'transcribing', progress: 20, message: 'Transcribing audio...' });
+            const transcriptionResult = await transcribeAudio(videoFile);
+            setTranscript(transcriptionResult.text);
+            setProgress({ status: 'transcribing', progress: 50, message: 'Transcription complete' });
+
+            // Find highlights based on transcript
+            setProgress({ status: 'analyzing', progress: 60, message: 'Finding highlights...' });
+            const segments = await findHighlights(
+                transcriptionResult.text,
+                highlightConfig,
+                videoMetadata.duration
+            );
+
+            // Update processed video with segments
+            setProcessedVideo(prev => prev ? {
+                ...prev,
+                segments,
+                transcript: transcriptionResult.text,
+            } : null);
+
+            setProgress({ status: 'processing', progress: 70, message: 'Generating highlight video...' });
+
+            // Generate the highlight video based on platform
+            if (highlightConfig.targetPlatform === 'all') {
+                // Generate all formats
+                const outputs = await createPlatformSpecificVideos(videoFile, segments);
+
+                // Create object URLs for each output
+                const urls: Record<string, string> = {};
+                Object.entries(outputs).forEach(([platform, blob]) => {
+                    urls[platform] = URL.createObjectURL(blob);
+                });
+
+                setHighlightUrls(urls);
+            } else {
+                // Generate just the selected format
+                let dimensions;
+                switch (highlightConfig.targetPlatform) {
+                    case 'youtube':
+                        dimensions = { width: 1920, height: 1080 }; // 16:9
+                        break;
+                    case 'tiktok':
+                        dimensions = { width: 1080, height: 1920 }; // 9:16
+                        break;
+                    case 'instagram':
+                        dimensions = { width: 1080, height: 1080 }; // 1:1
+                        break;
+                }
+
+                const highlightVideo = await createHighlightVideo(
+                    videoFile,
+                    segments,
+                    'mp4',
+                    dimensions
+                );
+
+                const highlightUrl = URL.createObjectURL(highlightVideo);
+                setHighlightUrls({ [highlightConfig.targetPlatform]: highlightUrl });
+            }
+
+            setProgress({ status: 'completed', progress: 100, message: 'Highlight video ready!' });
+        } catch (err) {
+            setProgress({
+                status: 'error',
+                progress: 0,
+                error: err instanceof Error ? err.message : 'Failed to process video'
+            });
+        }
+    };
+
+    const renderStep = () => {
+        // Step 1: API Key
+        if (!apiKey) {
+            return (
+                <div className="max-w-2xl mx-auto w-full">
+                    <h2 className="text-2xl font-bold mb-6">Step 1: Configure API Key</h2>
+                    <ApiKeyInput onApiKeyChange={handleApiKeyChange} />
+                </div>
+            );
+        }
+
+        // Step 2: Upload video
+        if (!videoFile) {
+            return (
+                <div className="max-w-2xl mx-auto w-full">
+                    <h2 className="text-2xl font-bold mb-6">Step 2: Upload Your Video</h2>
+                    <VideoUploader
+                        onVideoSelected={handleVideoSelected}
+                        isProcessing={progress.status !== 'idle'}
+                        progress={progress}
+                    />
+                </div>
+            );
+        }
+
+        // Step 3: Configure settings
+        if (videoFile && videoUrl && !processedVideo?.segments?.length) {
+            return (
+                <div className="w-full">
+                    <h2 className="text-2xl font-bold mb-6">Step 3: Configure Highlight Settings</h2>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div>
+                            <div className="mb-6">
+                                <h3 className="text-lg font-medium mb-2">Preview</h3>
+                                <VideoPlayer src={videoUrl} />
+                            </div>
+
+                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                                <h4 className="font-medium text-blue-800">Video Information</h4>
+                                {videoMetadata && (
+                                    <div className="mt-2 text-sm text-blue-700">
+                                        <p>Duration: {Math.floor(videoMetadata.duration / 60)}m {Math.floor(videoMetadata.duration % 60)}s</p>
+                                        <p>Resolution: {videoMetadata.width}x{videoMetadata.height}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 className="text-lg font-medium mb-2">Highlight Settings</h3>
+                            <HighlightConfig
+                                onChange={handleConfigChange}
+                                initialConfig={highlightConfig}
+                                disabled={progress.status !== 'idle'}
+                            />
+
+                            <div className="mt-6">
+                                <button
+                                    onClick={processVideo}
+                                    disabled={progress.status !== 'idle' || isLoading}
+                                    className={`w-full py-3 px-4 rounded-md text-white font-medium
+                    ${progress.status !== 'idle' || isLoading
+                                            ? 'bg-blue-300 cursor-not-allowed'
+                                            : 'bg-blue-600 hover:bg-blue-700 transition-colors'}
+                  `}
+                                >
+                                    {isLoading || progress.status !== 'idle'
+                                        ? 'Processing...'
+                                        : 'Generate Highlights'}
+                                </button>
+
+                                {error && (
+                                    <p className="mt-2 text-sm text-red-600">{error}</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Step 4: View and download results
+        if (processedVideo?.segments?.length) {
+            return (
+                <div className="w-full">
+                    <h2 className="text-2xl font-bold mb-6">Your Highlights</h2>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div>
+                            {Object.keys(highlightUrls).length > 0 && (
+                                <div className="mb-6">
+                                    <h3 className="text-lg font-medium mb-2">
+                                        {Object.keys(highlightUrls).length === 1
+                                            ? 'Preview Your Highlight'
+                                            : 'Preview Your Highlights'}
+                                    </h3>
+
+                                    {Object.keys(highlightUrls).length === 1 ? (
+                                        <VideoPlayer
+                                            src={Object.values(highlightUrls)[0]}
+                                            segments={processedVideo.segments}
+                                            autoPlay
+                                        />
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {Object.entries(highlightUrls).map(([platform, url]) => (
+                                                <div key={platform} className="border border-gray-200 rounded-lg p-4">
+                                                    <h4 className="font-medium mb-2 capitalize">{platform} Format</h4>
+                                                    <VideoPlayer src={url} autoPlay={false} />
+                                                    <a
+                                                        href={url}
+                                                        download={`highlight-${platform}.mp4`}
+                                                        className="mt-2 inline-block py-2 px-4 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+                                                    >
+                                                        Download
+                                                    </a>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <div>
+                            <h3 className="text-lg font-medium mb-2">Highlight Details</h3>
+                            <div className="border border-gray-200 rounded-lg p-4">
+                                <div className="mb-4">
+                                    <h4 className="font-medium text-gray-700">Segments Found</h4>
+                                    <p className="text-gray-600">{processedVideo.segments.length} segments, {Math.floor(
+                                        processedVideo.segments.reduce((acc, segment) => acc + (segment.end - segment.start), 0)
+                                    )} seconds total</p>
+                                </div>
+
+                                <div className="mb-4">
+                                    <h4 className="font-medium text-gray-700">Highlight Style</h4>
+                                    <p className="text-gray-600 capitalize">{processedVideo.highlightConfig.mode}</p>
+                                </div>
+
+                                {Object.keys(highlightUrls).length === 1 && (
+                                    <div className="mb-4">
+                                        <h4 className="font-medium text-gray-700">Download</h4>
+                                        <a
+                                            href={Object.values(highlightUrls)[0]}
+                                            download={`highlight.mp4`}
+                                            className="mt-2 inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                                        >
+                                            Download Highlight Video
+                                        </a>
+                                    </div>
+                                )}
+
+                                <div className="mt-6">
+                                    <button
+                                        onClick={() => {
+                                            setVideoFile(null);
+                                            setVideoUrl('');
+                                            setProcessedVideo(null);
+                                            setHighlightUrls({});
+                                            setProgress({ status: 'idle', progress: 0 });
+                                        }}
+                                        className="w-full py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+                                    >
+                                        Start Over
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        return null;
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <header className="bg-white shadow-sm">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+                    <h1 className="text-2xl font-bold text-gray-900">HAI-Lights Maker</h1>
+
+                    {apiKey && (
+                        <button
+                            onClick={() => setApiKey('')}
+                            className="text-sm text-gray-600 hover:text-gray-900"
+                        >
+                            Change API Key
+                        </button>
+                    )}
+                </div>
+            </header>
+
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {renderStep()}
+            </main>
+
+            <footer className="bg-white border-t border-gray-200 py-4">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center text-sm text-gray-600">
+                    <div>&copy; {new Date().getFullYear()} HAI-Lights Maker</div>
+                    <div className="flex gap-4">
+                        <a href="https://github.com/yourusername/hai-lights-maker" className="hover:text-blue-600">GitHub</a>
+                    </div>
+                </div>
+            </footer>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
-}
+    );
+} 

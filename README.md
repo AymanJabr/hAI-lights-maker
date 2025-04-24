@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HAI-Lights Maker
+
+An AI-powered video highlight generator that automatically creates engaging clips from longer videos.
+
+## Overview
+
+HAI-Lights Maker is a web application that uses AI to analyze videos and create highlight reels based on different criteria. Upload a long video (like a webinar, sports event, or presentation) and the app will:
+
+1. Transcribe the audio using OpenAI's Whisper model
+2. Analyze the content to find interesting moments
+3. Extract highlights based on your chosen style (key highlights, epic moments, main ideas, or funny clips)
+4. Generate a highlight video ready for social media in your preferred format
+
+## Features
+
+- **Easy Video Upload**: Drag & drop interface for uploading videos
+- **AI-Powered Analysis**: Uses OpenAI models to understand video content
+- **Custom Highlight Styles**: Choose different vibes for your highlight reel or create a custom prompt
+- **Multiple Export Formats**: Generate videos optimized for different platforms (YouTube, TikTok, Instagram)
+- **Client-side Processing**: Video processing happens in the browser using WebAssembly
+- **Face Detection**: Identifies speaker close-ups as potential highlight moments
+
+## Technologies Used
+
+- Next.js with App Router
+- TypeScript
+- Tailwind CSS for styling
+- FFmpeg.wasm for client-side video processing
+- TensorFlow.js and MediaPipe for face detection
+- OpenAI API for transcription and content analysis
+- Web Workers for performance-intensive tasks
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- pnpm package manager
+- An OpenAI API key
+
+### Installation
+
+1. Clone the repository:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/yourusername/hai-lights-maker.git
+cd hai-lights-maker
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm install
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Create a `.env.local` file in the root directory and add your OpenAI API key:
 
-## Learn More
+```
+OPENAI_API_KEY=your_api_key_here
+```
 
-To learn more about Next.js, take a look at the following resources:
+4. Start the development server:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Deploy on Vercel
+## Usage
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Enter your OpenAI API key (or the app will use the one from environment variables if available)
+2. Upload a video file
+3. Select your highlight style and target platform
+4. Click "Generate Highlights" and wait for processing
+5. Preview and download your highlight reel
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Future Enhancements
+
+- Add support for audio analysis to detect applause, music, or emotional moments
+- Implement more advanced video filters and transitions
+- Add batch processing for multiple videos
+- Include speech emotion detection for better highlight selection
+- Support for longer videos with optimized processing
+
+## License
+
+MIT
+
+## Acknowledgments
+
+- [FFmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) for bringing video processing to the browser
+- [TensorFlow.js](https://www.tensorflow.org/js) and [MediaPipe](https://mediapipe.dev/) for the face detection models
+- [OpenAI](https://openai.com/) for their powerful API services
