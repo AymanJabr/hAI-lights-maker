@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "HAI-Lights Maker",
   description: "Generate highlights from your videos in seconds with AI",
   icons: {
-    icon: "/logo.svg",
+    icon: "/favicon.svg",
     apple: "/logo.svg",
   }
 };
