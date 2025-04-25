@@ -15,13 +15,18 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
     const [segmentUrl, setSegmentUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
+    const processingRef = useRef<boolean>(false);
 
     useEffect(() => {
         let isMounted = true;
+        // Prevent concurrent processing attempts
+        if (processingRef.current) return;
+        processingRef.current = true;
 
         const generateSegmentVideo = async () => {
             // We'll use the createHighlightVideo function directly
             try {
+                if (!isMounted) return;
                 setIsLoading(true);
                 setLoadingStatus('Loading FFmpeg...');
                 setLoadingProgress(10);
@@ -31,7 +36,9 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
 
                 // Make sure FFmpeg is loaded first
                 await loadFFmpeg();
+                if (!isMounted) return;
                 setLoadingProgress(30);
+                console.log(`Segment ${index + 1}: FFmpeg loaded, starting processing`);
 
                 // Add retry logic (maximum 2 attempts)
                 let attempts = 0;
@@ -41,8 +48,10 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
                 while (attempts < maxAttempts) {
                     try {
                         attempts++;
+                        if (!isMounted) return;
                         setLoadingStatus(`Processing segment ${attempts === 1 ? '' : '(retry)'}`);
                         setLoadingProgress(40);
+                        console.log(`Segment ${index + 1}: Starting attempt ${attempts}`);
 
                         // Create a video just for this segment
                         const segmentBlob = await createHighlightVideo(
@@ -60,11 +69,22 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
                             }
                         );
 
+                        console.log(`Segment ${index + 1}: Successfully created, size: ${segmentBlob.size} bytes`);
+
                         if (isMounted) {
                             const url = URL.createObjectURL(segmentBlob);
+                            console.log(`Segment ${index + 1}: URL created: ${url}`);
                             setSegmentUrl(url);
                             setIsLoading(false);
                             setLoadingProgress(100);
+
+                            // Force a UI update
+                            setTimeout(() => {
+                                if (videoRef.current) {
+                                    videoRef.current.src = url;
+                                    videoRef.current.load();
+                                }
+                            }, 0);
                         }
                         return; // Success, exit the function
                     } catch (err) {
@@ -72,7 +92,7 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
                         lastError = err;
 
                         // Small delay before retry
-                        if (attempts < maxAttempts) {
+                        if (attempts < maxAttempts && isMounted) {
                             setLoadingStatus(`Retry attempt in progress...`);
                             await new Promise(resolve => setTimeout(resolve, 1000));
                         }
@@ -87,6 +107,8 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
                     setError(`Failed to create segment preview: ${err instanceof Error ? err.message : String(err)}`);
                     setIsLoading(false);
                 }
+            } finally {
+                processingRef.current = false;
             }
         };
 

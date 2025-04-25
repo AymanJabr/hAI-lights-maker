@@ -250,10 +250,15 @@ export default function Home() {
                 const urls: Record<string, string> = {};
                 Object.entries(outputs).forEach(([platform, blob]) => {
                     urls[platform] = URL.createObjectURL(blob);
-                    console.log(`Created ${platform} video: ${(blob.size / (1024 * 1024)).toFixed(2)}MB`);
+                    console.log(`Created ${platform} video: ${(blob.size / (1024 * 1024)).toFixed(2)}MB URL: ${urls[platform]}`);
                 });
 
+                // Explicitly set highlight URLs and ensure they're available
+                console.log('Setting highlight URLs:', Object.keys(urls));
                 setHighlightUrls(urls);
+
+                // Force a small delay to ensure state updates propagate
+                await new Promise(resolve => setTimeout(resolve, 100));
             } else {
                 // Generate just the selected format
                 let dimensions;
@@ -290,10 +295,44 @@ export default function Home() {
                 console.log(`Output video size: ${(highlightVideo.size / (1024 * 1024)).toFixed(2)}MB`);
 
                 const highlightUrl = URL.createObjectURL(highlightVideo);
-                setHighlightUrls({ [highlightConfig.targetPlatform]: highlightUrl });
+                console.log(`Created URL: ${highlightUrl}`);
+
+                // Explicitly set highlight URLs and verify
+                const newHighlightUrls = { [highlightConfig.targetPlatform]: highlightUrl };
+                console.log('Setting highlight URLs:', Object.keys(newHighlightUrls));
+
+                // Use a function version of setHighlightUrls to ensure we're getting the latest state
+                setHighlightUrls(prev => {
+                    console.log('Previous highlight URLs:', Object.keys(prev));
+                    return newHighlightUrls;
+                });
+
+                // Force a small delay to ensure state updates propagate
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
 
             console.log('--- Video processing complete ---');
+            // Set progress to completed AFTER ensuring highlight URLs are set
+            // Force a final state check before completing
+            const hasUrls = Object.keys(highlightUrls).length > 0;
+            console.log(`Final state check - Has URLs: ${hasUrls ? 'YES' : 'NO'}, Count: ${Object.keys(highlightUrls).length}`);
+
+            if (!hasUrls) {
+                console.log('WARNING: No highlight URLs set before completing. Rechecking state...');
+                // Wait a bit longer to see if state updates
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // If still no URLs, create a fresh URL from the cached blob as a fallback
+                if (typeof window !== 'undefined' && window._lastCreatedVideoBlob && Object.keys(highlightUrls).length === 0) {
+                    console.log('Creating fallback URL from cached blob');
+                    const fallbackUrl = URL.createObjectURL(window._lastCreatedVideoBlob);
+                    setHighlightUrls({ fallback: fallbackUrl });
+
+                    // Wait once more to ensure state updates
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+
             updateProgress('completed', 100, 'Highlight video ready!');
         } catch (err) {
             console.error('Error during video processing:', err);
@@ -379,57 +418,12 @@ export default function Home() {
                 <div className="w-full">
                     <h2 className="text-2xl font-bold mb-6">Your Highlights</h2>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
                         <div>
-                            {Object.keys(highlightUrls).length > 0 ? (
-                                <div className="mb-6">
-                                    <h3 className="text-lg font-medium mb-2">
-                                        {Object.keys(highlightUrls).length === 1
-                                            ? 'Preview Your Highlight'
-                                            : 'Preview Your Highlights'}
-                                    </h3>
-
-                                    {Object.keys(highlightUrls).length === 1 ? (
-                                        <VideoPlayer
-                                            src={Object.values(highlightUrls)[0]}
-                                            segments={processedVideo.segments}
-                                            autoPlay
-                                        />
-                                    ) : (
-                                        <div className="space-y-4">
-                                            {Object.entries(highlightUrls).map(([platform, url]) => (
-                                                <div key={platform} className="border border-gray-200 rounded-lg p-4">
-                                                    <h4 className="font-medium mb-2 capitalize">{platform} Format</h4>
-                                                    <VideoPlayer src={url} autoPlay={false} />
-                                                    <a
-                                                        href={url}
-                                                        download={`highlight-${platform}.mp4`}
-                                                        className="mt-2 inline-block py-2 px-4 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
-                                                    >
-                                                        Download
-                                                    </a>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            ) : progress.status === 'completed' ? (
-                                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg mb-6">
-                                    <h3 className="text-lg font-medium text-yellow-800 mb-2">Highlight Video Processing</h3>
-                                    <p className="text-yellow-700">
-                                        Your highlight video has been generated, but the combined video isn't available yet.
-                                        You can view and download individual segments below.
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-6 flex items-center">
-                                    <svg className="animate-spin h-5 w-5 text-blue-600 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span className="text-blue-700">Generating combined highlight video...</span>
-                                </div>
-                            )}
+                            <h3 className="text-lg font-medium mb-2">Original Video</h3>
+                            <div className="mb-6">
+                                <VideoPlayer src={videoUrl} />
+                            </div>
                         </div>
 
                         <div>
@@ -446,19 +440,6 @@ export default function Home() {
                                     <h4 className="font-medium text-gray-700">Highlight Style</h4>
                                     <p className="text-gray-600 capitalize">{processedVideo.highlightConfig.mode}</p>
                                 </div>
-
-                                {Object.keys(highlightUrls).length === 1 && (
-                                    <div className="mb-4">
-                                        <h4 className="font-medium text-gray-700">Download</h4>
-                                        <a
-                                            href={Object.values(highlightUrls)[0]}
-                                            download={`highlight.mp4`}
-                                            className="mt-2 inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                                        >
-                                            Download Highlight Video
-                                        </a>
-                                    </div>
-                                )}
 
                                 <div className="mt-6">
                                     <button
@@ -485,6 +466,102 @@ export default function Home() {
                             originalVideo={processedVideo.originalFile}
                         />
                     )}
+
+                    {/* Combined Highlight Video Section */}
+                    <div className="mt-10 mb-6">
+                        <h2 className="text-xl font-bold mb-6">Combined Highlight Video</h2>
+                        {Object.keys(highlightUrls).length > 0 ? (
+                            <div>
+                                <div className="mb-6">
+                                    {Object.keys(highlightUrls).length === 1 ? (
+                                        <div className="border border-gray-200 rounded-lg p-4">
+                                            <h3 className="text-lg font-medium mb-2">Complete Highlight</h3>
+                                            <VideoPlayer
+                                                src={Object.values(highlightUrls)[0]}
+                                                segments={processedVideo.segments}
+                                                autoPlay={false}
+                                            />
+                                            <a
+                                                href={Object.values(highlightUrls)[0]}
+                                                download={`highlight.mp4`}
+                                                className="mt-4 inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                                            >
+                                                Download Highlight Video
+                                            </a>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {Object.entries(highlightUrls).map(([platform, url]) => (
+                                                <div key={platform} className="border border-gray-200 rounded-lg p-4">
+                                                    <h4 className="font-medium mb-2 capitalize">{platform} Format</h4>
+                                                    <VideoPlayer src={url} autoPlay={false} />
+                                                    <a
+                                                        href={url}
+                                                        download={`highlight-${platform}.mp4`}
+                                                        className="mt-2 inline-block py-2 px-4 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+                                                    >
+                                                        Download
+                                                    </a>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="text-sm text-gray-500 mt-2">
+                                    Debug info: {Object.keys(highlightUrls).length} URLs available
+                                </div>
+                            </div>
+                        ) : progress.status === 'completed' ? (
+                            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                <h3 className="text-lg font-medium text-yellow-800 mb-2">Highlight Video Processing</h3>
+                                <p className="text-yellow-700">
+                                    Your highlight video has been generated, but the combined video isn't available yet.
+                                    You can view and download individual segments above.
+                                </p>
+                                <button
+                                    onClick={() => {
+                                        // Attempt to force reload the processing
+                                        console.log('Attempting to force video display refresh');
+                                        setProgress({ status: 'processing', progress: 99, message: 'Finalizing video...' });
+                                        setTimeout(() => {
+                                            setProgress({ status: 'completed', progress: 100, message: 'Highlight video ready!' });
+                                        }, 1000);
+                                    }}
+                                    className="mt-3 py-2 px-4 bg-yellow-100 text-yellow-800 rounded-md hover:bg-yellow-200 transition-colors"
+                                >
+                                    Retry Load
+                                </button>
+                                <div className="mt-3 border-t border-yellow-200 pt-3">
+                                    <button
+                                        onClick={() => {
+                                            console.log('DEBUG: Manual display of combined video');
+                                            // Try to force the combined video to display by manually setting the URLs
+                                            // First check if there are any blobs in memory
+                                            if (window._lastCreatedVideoBlob) {
+                                                console.log('Found cached video blob, creating URL');
+                                                const url = URL.createObjectURL(window._lastCreatedVideoBlob);
+                                                setHighlightUrls({ manual: url });
+                                            } else {
+                                                console.log('No cached video blob found');
+                                                alert('No cached video found. Please refresh and try again.');
+                                            }
+                                        }}
+                                        className="px-3 py-1 text-xs bg-yellow-50 text-yellow-700 border border-yellow-300 rounded"
+                                    >
+                                        Debug: Manual Display
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center">
+                                <svg className="animate-spin h-5 w-5 text-blue-600 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span className="text-blue-700">Generating combined highlight video... {Math.round(progress.progress)}%</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
             );
         }

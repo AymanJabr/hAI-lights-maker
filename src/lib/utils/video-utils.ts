@@ -3,6 +3,13 @@ import { fetchFile } from '@ffmpeg/util';
 import { VideoMetadata, VideoSegment } from '@/types';
 import { toBlobURL } from '@ffmpeg/util';
 
+// Define a global type extension for the window object
+declare global {
+    interface Window {
+        _lastCreatedVideoBlob?: Blob;
+    }
+}
+
 // Singleton pattern with loading lock
 let ffmpeg: FFmpeg | null = null;
 let isLoading = false;
@@ -310,6 +317,19 @@ export async function createHighlightVideo(
                 const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
                 const outputBlob = new Blob([data], { type: mimeType });
                 console.log(`Successfully created output file, size: ${outputBlob.size} bytes`);
+
+                // Add enhanced logging to ensure file is ready
+                console.log(`Video processing COMPLETE - Output blob created successfully`);
+                console.log(`Mime type: ${mimeType}, Blob valid: ${outputBlob instanceof Blob}`);
+
+                // Log to help diagnose UI update issues
+                console.log(`About to return output blob from createHighlightVideo function`);
+
+                // Store the blob in a global variable for recovery if needed
+                if (typeof window !== 'undefined') {
+                    window._lastCreatedVideoBlob = outputBlob;
+                    console.log('Saved video blob to window._lastCreatedVideoBlob for recovery');
+                }
 
                 // Clean up files to prevent memory leaks and filesystem errors
                 try {

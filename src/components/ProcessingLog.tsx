@@ -168,12 +168,12 @@ export default function ProcessingLog({ isProcessing, latestMessage }: Processin
                             </span>
                             <span
                                 className={`${log.type === 'error'
-                                        ? 'text-red-400'
-                                        : log.type === 'success'
-                                            ? 'text-green-400'
-                                            : log.type === 'progress'
-                                                ? 'text-blue-400'
-                                                : 'text-gray-200'
+                                    ? 'text-red-400'
+                                    : log.type === 'success'
+                                        ? 'text-green-400'
+                                        : log.type === 'progress'
+                                            ? 'text-blue-400'
+                                            : 'text-gray-200'
                                     }`}
                             >
                                 {log.message}
