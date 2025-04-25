@@ -18,12 +18,15 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                 throw new Error('API key is required');
             }
 
+            console.log(`Preparing to transcribe audio file (${audioBlob.size} bytes)`);
+
             const formData = new FormData();
             formData.append('file', audioBlob, 'audio.mp3');
             formData.append('model', 'whisper-1');
             formData.append('response_format', 'json');
             formData.append('timestamp_granularities[]', 'segment');
 
+            console.log('Sending transcription request to API');
             const response = await fetch('/api/openai/transcribe', {
                 method: 'POST',
                 body: formData,
@@ -33,14 +36,30 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Transcription failed: ${response.statusText}. ${errorText}`);
+                let errorText = '';
+                try {
+                    const errorJson = await response.json();
+                    errorText = JSON.stringify(errorJson);
+                } catch (e) {
+                    errorText = await response.text();
+                }
+                console.error(`Transcription API error (${response.status}):`, errorText);
+                throw new Error(`Transcription failed: ${response.status} ${response.statusText}. ${errorText}`);
             }
 
+            console.log('Transcription API response received');
             const result = await response.json();
+
+            // Validate the response
+            if (!result.text) {
+                console.error('Invalid transcription result:', result);
+                throw new Error('Invalid transcription result: missing text');
+            }
+
             return result;
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error during transcription';
+            console.error('Transcription error details:', err);
             setError(errorMessage);
             throw err;
         } finally {

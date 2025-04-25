@@ -21,8 +21,6 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const openai = new OpenAI({ apiKey });
-
         // Get form data with audio file
         const formData = await request.formData();
         const file = formData.get('file') as File;
@@ -34,25 +32,33 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Convert File to Blob for OpenAI API
-        const buffer = await file.arrayBuffer();
-        const fileBlob = new Blob([buffer]);
+        console.log('Received file:', file.name, 'Size:', file.size, 'Type:', file.type);
 
-        // Create a form for API call
+        // Create a new FormData instance to send to OpenAI
         const openAIFormData = new FormData();
-        openAIFormData.append('file', fileBlob, file.name);
+        openAIFormData.append('file', file);
         openAIFormData.append('model', 'whisper-1');
         openAIFormData.append('response_format', 'verbose_json');
         openAIFormData.append('timestamp_granularities[]', 'segment');
 
-        // Call OpenAI's transcription API
-        const transcription = await openai.audio.transcriptions.create({
-            file: fileBlob as any, // Type workaround
-            model: 'whisper-1',
-            response_format: 'verbose_json',
-            timestamp_granularities: ['segment'],
+        // Direct API call to OpenAI using fetch
+        console.log('Sending direct fetch request to OpenAI API');
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+            },
+            body: openAIFormData,
         });
 
+        if (!response.ok) {
+            const errorData = await response.text();
+            console.error('OpenAI API error:', response.status, errorData);
+            throw new Error(`OpenAI API error: ${response.status} ${errorData}`);
+        }
+
+        const transcription = await response.json();
+        console.log('Transcription successful');
         return NextResponse.json(transcription);
     } catch (error) {
         console.error('Transcription error:', error);
@@ -75,8 +81,6 @@ export async function POST(request: NextRequest) {
 // Increase payload size limit for audio files
 export const config = {
     api: {
-        bodyParser: {
-            sizeLimit: '50mb',
-        },
+        bodyParser: false, // Let Next.js handle the form data parsing
     },
 }; 

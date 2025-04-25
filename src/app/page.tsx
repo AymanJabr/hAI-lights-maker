@@ -177,17 +177,25 @@ export default function Home() {
             // TODO: In a production app, we would extract audio to a smaller file first
             // For now, we'll just use the video file directly
             console.log('Step 2: Starting transcription');
+            console.log(`Sending file to transcription API: ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)}MB)`);
             updateProgress('transcribing', 20, 'Transcribing audio...');
 
             const transcriptionStart = performance.now();
-            const transcriptionResult = await transcribeAudio(videoFile);
-            const transcriptionTime = ((performance.now() - transcriptionStart) / 1000).toFixed(2);
+            let transcriptionResult;
+            try {
+                transcriptionResult = await transcribeAudio(videoFile);
+                const transcriptionTime = ((performance.now() - transcriptionStart) / 1000).toFixed(2);
 
-            setTranscript(transcriptionResult.text);
-            console.log(`Transcription completed in ${transcriptionTime}s`);
-            console.log(`Transcript length: ${transcriptionResult.text.length} characters`);
+                setTranscript(transcriptionResult.text);
+                console.log(`Transcription completed in ${transcriptionTime}s`);
+                console.log(`Transcript length: ${transcriptionResult.text.length} characters`);
+                console.log(`First 100 characters: "${transcriptionResult.text.substring(0, 100)}..."`);
 
-            updateProgress('transcribing', 50, 'Transcription complete');
+                updateProgress('transcribing', 50, 'Transcription complete');
+            } catch (transcriptionError) {
+                console.error("Transcription failed:", transcriptionError);
+                throw new Error(`Transcription failed: ${transcriptionError instanceof Error ? transcriptionError.message : String(transcriptionError)}`);
+            }
 
             // Find highlights based on transcript
             console.log('Step 3: Analyzing transcript for highlights');
