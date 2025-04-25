@@ -1,31 +1,43 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { fetchFile } from '@ffmpeg/util';
 import { VideoMetadata, VideoSegment } from '@/types';
+import { toBlobURL } from '@ffmpeg/util';
 
 let ffmpeg: FFmpeg | null = null;
 
 export async function loadFFmpeg() {
-    if (ffmpeg) return ffmpeg;
+    if (ffmpeg) {
+        console.log('Using existing FFmpeg instance');
+        return ffmpeg;
+    }
 
-    ffmpeg = new FFmpeg();
+    console.log('Creating new FFmpeg instance');
+    try {
+        ffmpeg = new FFmpeg();
 
-    // Load ffmpeg core
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
-    const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
-    const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
-    await ffmpeg.load({ coreURL, wasmURL });
+        console.log('Loading FFmpeg core...');
 
-    return ffmpeg;
+        // Use dynamically imported files from node_modules
+        // This leverages Next.js's ability to handle these imports
+        await ffmpeg.load();
+
+        console.log('FFmpeg loaded successfully');
+        return ffmpeg;
+    } catch (error) {
+        console.error('Failed to load FFmpeg:', error);
+        throw new Error(`FFmpeg loading failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
     console.log(`Extracting metadata from file: ${file.name} (${file.size} bytes)`);
 
+    // For video metadata, we don't need FFmpeg - just use the browser's built-in video element
     try {
         // Create a video element to get basic metadata
         const video = document.createElement('video');
         const fileURL = URL.createObjectURL(file);
-        console.log(`Created blob URL: ${fileURL}`);
+        console.log(`Created blob URL for metadata extraction: ${fileURL}`);
 
         video.src = fileURL;
         video.muted = true; // Mute to prevent audio playback
@@ -60,7 +72,7 @@ export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
                     duration,
                     width,
                     height,
-                    fps: 30, // Assuming default fps, would need ffprobe for accurate fps
+                    fps: 30, // Assuming default fps
                 });
             };
 
@@ -135,82 +147,142 @@ export async function createHighlightVideo(
     targetDimensions?: { width: number; height: number },
     onProgress?: (step: string, progress: number, detail?: string) => void
 ): Promise<Blob> {
-    const ffmpeg = await loadFFmpeg();
-    const inputFileName = 'input.' + file.name.split('.').pop();
-    const outputFileName = `output.${outputFormat}`;
+    try {
+        onProgress?.('init', 0, 'Initializing FFmpeg');
 
-    onProgress?.('init', 0, 'Initializing FFmpeg');
+        // Make sure FFmpeg is properly loaded
+        let ffmpegInstance: FFmpeg;
+        try {
+            ffmpegInstance = await loadFFmpeg();
+            console.log('FFmpeg loaded successfully for video processing');
+        } catch (ffmpegError) {
+            console.error('Failed to load FFmpeg for video processing:', ffmpegError);
+            throw new Error(`Could not initialize video processor: ${ffmpegError instanceof Error ? ffmpegError.message : String(ffmpegError)}`);
+        }
 
-    // Write the input file to the virtual filesystem
-    onProgress?.('writing_input', 10, 'Loading video file');
-    await ffmpeg.writeFile(inputFileName, await fetchFile(file));
-    onProgress?.('writing_input', 20, 'Video file loaded');
+        const fileExt = file.name.split('.').pop() || 'mp4';
+        const inputFileName = `input.${fileExt}`;
+        const outputFileName = `output.${outputFormat}`;
 
-    // Create a file list with segments for the concat filter
-    let concatContent = '';
-    let index = 0;
-    const totalSegments = segments.length;
+        // Write the input file to the virtual filesystem
+        onProgress?.('writing_input', 10, 'Loading video file');
+        console.log(`Loading file into FFmpeg: ${file.name} (${file.size} bytes)`);
 
-    onProgress?.('extracting_segments', 20, `Extracting ${totalSegments} segments`);
+        try {
+            // Extract file content directly without using fetchFile
+            const arrayBuffer = await file.arrayBuffer();
+            const fileData = new Uint8Array(arrayBuffer);
 
-    for (const segment of segments) {
-        const segmentFile = `segment-${index}.${outputFormat}`;
+            // Write to FFmpeg's virtual filesystem
+            await ffmpegInstance.writeFile(inputFileName, fileData);
+            console.log(`Successfully loaded file into FFmpeg, size: ${fileData.byteLength} bytes`);
+            onProgress?.('writing_input', 20, 'Video file loaded');
+        } catch (fileError) {
+            console.error('Error loading file into FFmpeg:', fileError);
+            throw new Error(`Failed to load video file: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
+        }
 
-        // Calculate segment progress (20-60% of total)
-        const segmentProgress = 20 + Math.floor((index / totalSegments) * 40);
-        onProgress?.('extracting_segments', segmentProgress,
-            `Extracting segment ${index + 1}/${totalSegments} (${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s)`);
+        // List files to verify the input file was written
+        const files = await ffmpegInstance.listDir('./');
+        console.log('Files in FFmpeg filesystem:', files.map(f => f.name));
 
-        // Extract each segment
-        await ffmpeg.exec([
-            '-i', inputFileName,
-            '-ss', segment.start.toString(),
-            '-to', segment.end.toString(),
-            '-c', 'copy',
-            segmentFile
-        ]);
+        // Create a file list with segments for the concat filter
+        let concatContent = '';
+        let index = 0;
+        const totalSegments = segments.length;
 
-        concatContent += `file ${segmentFile}\n`;
-        index++;
-    }
+        onProgress?.('extracting_segments', 20, `Extracting ${totalSegments} segments`);
 
-    // Write the concat file
-    onProgress?.('concatenating', 60, 'Preparing to join segments');
-    await ffmpeg.writeFile('concat.txt', new TextEncoder().encode(concatContent));
+        for (const segment of segments) {
+            const segmentFile = `segment-${index}.${outputFormat}`;
 
-    // Concat all segments
-    let command = [
-        '-f', 'concat',
-        '-safe', '0',
-        '-i', 'concat.txt',
-        '-c', 'copy'
-    ];
+            // Calculate segment progress (20-60% of total)
+            const segmentProgress = 20 + Math.floor((index / totalSegments) * 40);
+            onProgress?.('extracting_segments', segmentProgress,
+                `Extracting segment ${index + 1}/${totalSegments} (${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s)`);
 
-    // Apply resize if target dimensions are provided
-    if (targetDimensions) {
-        onProgress?.('concatenating', 65, `Resizing to ${targetDimensions.width}x${targetDimensions.height}`);
-        command = [
+            try {
+                // Extract each segment
+                await ffmpegInstance.exec([
+                    '-i', inputFileName,
+                    '-ss', segment.start.toString(),
+                    '-to', segment.end.toString(),
+                    '-c', 'copy',
+                    segmentFile
+                ]);
+                console.log(`Extracted segment ${index + 1}: ${segment.start}s - ${segment.end}s`);
+            } catch (segmentError) {
+                console.error(`Error extracting segment ${index + 1}:`, segmentError);
+                throw new Error(`Failed to extract segment ${index + 1}: ${segmentError instanceof Error ? segmentError.message : String(segmentError)}`);
+            }
+
+            concatContent += `file ${segmentFile}\n`;
+            index++;
+        }
+
+        // Write the concat file
+        onProgress?.('concatenating', 60, 'Preparing to join segments');
+        await ffmpegInstance.writeFile('concat.txt', new TextEncoder().encode(concatContent));
+        console.log('Created concat file with content:', concatContent);
+
+        // Concat all segments
+        let command = [
             '-f', 'concat',
             '-safe', '0',
             '-i', 'concat.txt',
-            '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
-            '-c:v', 'libx264',
-            '-crf', '23',
-            '-preset', 'medium',
-            '-c:a', 'aac'
+            '-c', 'copy'
         ];
+
+        // Apply resize if target dimensions are provided
+        if (targetDimensions) {
+            onProgress?.('concatenating', 65, `Resizing to ${targetDimensions.width}x${targetDimensions.height}`);
+            command = [
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', 'concat.txt',
+                '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
+                '-c:v', 'libx264',
+                '-crf', '23',
+                '-preset', 'medium',
+                '-c:a', 'aac'
+            ];
+        }
+
+        command.push(outputFileName);
+        onProgress?.('concatenating', 70, 'Joining segments into final video');
+        console.log('Running FFmpeg command:', command.join(' '));
+
+        try {
+            await ffmpegInstance.exec(command);
+            console.log('Successfully joined segments');
+        } catch (concatError) {
+            console.error('Error joining segments:', concatError);
+            throw new Error(`Failed to join segments: ${concatError instanceof Error ? concatError.message : String(concatError)}`);
+        }
+
+        // Read the output file
+        onProgress?.('finalizing', 90, 'Creating final video file');
+
+        try {
+            const data = await ffmpegInstance.readFile(outputFileName);
+            if (!data) {
+                throw new Error('Failed to read output file, data is null');
+            }
+
+            const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
+            const outputBlob = new Blob([data], { type: mimeType });
+            console.log(`Successfully created output file, size: ${outputBlob.size} bytes`);
+
+            onProgress?.('finalizing', 100, 'Video processing complete');
+            return outputBlob;
+        } catch (outputError) {
+            console.error('Error reading output file:', outputError);
+            throw new Error(`Failed to read output file: ${outputError instanceof Error ? outputError.message : String(outputError)}`);
+        }
+    } catch (error) {
+        console.error('Error in createHighlightVideo:', error);
+        throw error;
     }
-
-    command.push(outputFileName);
-    onProgress?.('concatenating', 70, 'Joining segments into final video');
-    await ffmpeg.exec(command);
-
-    // Read the output file
-    onProgress?.('finalizing', 90, 'Creating final video file');
-    const data = await ffmpeg.readFile(outputFileName);
-    const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
-    onProgress?.('finalizing', 100, 'Video processing complete');
-    return new Blob([data!], { type: mimeType });
 }
 
 // Function to create platform-specific output formats
@@ -219,44 +291,63 @@ export async function createPlatformSpecificVideos(
     segments: VideoSegment[],
     onProgress?: (step: string, progress: number, detail?: string) => void
 ): Promise<Record<string, Blob>> {
-    const outputs: Record<string, Blob> = {};
-    const platforms = ['youtube', 'tiktok', 'instagram'];
-    const totalPlatforms = platforms.length;
+    try {
+        const outputs: Record<string, Blob> = {};
+        const platforms = ['youtube', 'tiktok', 'instagram'];
+        const totalPlatforms = platforms.length;
 
-    for (let i = 0; i < totalPlatforms; i++) {
-        const platform = platforms[i];
-        onProgress?.('platform_specific', (i / totalPlatforms) * 100,
-            `Creating ${platform} format (${i + 1}/${totalPlatforms})`);
+        for (let i = 0; i < totalPlatforms; i++) {
+            const platform = platforms[i];
+            onProgress?.('platform_specific', (i / totalPlatforms) * 100,
+                `Creating ${platform} format (${i + 1}/${totalPlatforms})`);
 
-        let dimensions;
-        switch (platform) {
-            case 'youtube':
-                dimensions = { width: 1920, height: 1080 }; // 16:9
-                break;
-            case 'tiktok':
-                dimensions = { width: 1080, height: 1920 }; // 9:16
-                break;
-            case 'instagram':
-                dimensions = { width: 1080, height: 1080 }; // 1:1
-                break;
+            let dimensions;
+            switch (platform) {
+                case 'youtube':
+                    dimensions = { width: 1920, height: 1080 }; // 16:9
+                    break;
+                case 'tiktok':
+                    dimensions = { width: 1080, height: 1920 }; // 9:16
+                    break;
+                case 'instagram':
+                    dimensions = { width: 1080, height: 1080 }; // 1:1
+                    break;
+            }
+
+            // For each platform processing, we adapt the progress to be within the current platform's range
+            const platformProgressCallback = (step: string, progress: number, detail?: string) => {
+                // Scale progress to be within the correct range for overall progress
+                // Each platform takes up (1/totalPlatforms) of the total progress space
+                const scaledProgress = (i / totalPlatforms) * 100 + (progress / totalPlatforms);
+                onProgress?.(step, scaledProgress, `[${platform}] ${detail}`);
+            };
+
+            try {
+                console.log(`Starting to create ${platform} format video...`);
+                outputs[platform] = await createHighlightVideo(
+                    file,
+                    segments,
+                    'mp4',
+                    dimensions,
+                    platformProgressCallback
+                );
+                console.log(`Successfully created ${platform} format video, size: ${outputs[platform].size} bytes`);
+            } catch (platformError) {
+                console.error(`Error creating ${platform} format:`, platformError);
+                // Continue with other platforms instead of failing completely
+                onProgress?.('platform_specific', (i / totalPlatforms) * 100,
+                    `⚠️ Failed to create ${platform} format: ${platformError instanceof Error ? platformError.message : String(platformError)}`);
+            }
         }
 
-        // For each platform processing, we adapt the progress to be within the current platform's range
-        const platformProgressCallback = (step: string, progress: number, detail?: string) => {
-            // Scale progress to be within the correct range for overall progress
-            // Each platform takes up (1/totalPlatforms) of the total progress space
-            const scaledProgress = (i / totalPlatforms) * 100 + (progress / totalPlatforms);
-            onProgress?.(step, scaledProgress, `[${platform}] ${detail}`);
-        };
+        // Check if we were able to create at least one output
+        if (Object.keys(outputs).length === 0) {
+            throw new Error('Failed to create any platform-specific videos');
+        }
 
-        outputs[platform] = await createHighlightVideo(
-            file,
-            segments,
-            'mp4',
-            dimensions,
-            platformProgressCallback
-        );
+        return outputs;
+    } catch (error) {
+        console.error('Error in createPlatformSpecificVideos:', error);
+        throw error;
     }
-
-    return outputs;
 } 
