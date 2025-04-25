@@ -8,6 +8,7 @@ import VideoPlayer from '@/components/VideoPlayer';
 import ApiKeyConfig from '@/components/ApiKeyConfig';
 import Header from '@/components/layout/Header';
 import ProcessingLog from '@/components/ProcessingLog';
+import SegmentsGallery from '@/components/SegmentsGallery';
 import { useOpenAI } from '@/hooks/useOpenAI';
 import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, ProgressState, VideoSegment, VideoMetadata } from '@/types';
 import { getVideoMetadata, extractFrames, createHighlightVideo, createPlatformSpecificVideos } from '@/lib/utils/video-utils';
@@ -460,6 +461,14 @@ export default function Home() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Add Segments Gallery for individual segments */}
+                    {processedVideo.originalFile && (
+                        <SegmentsGallery
+                            segments={processedVideo.segments}
+                            originalVideo={processedVideo.originalFile}
+                        />
+                    )}
                 </div>
             );
         }

@@ -3,30 +3,51 @@ import { fetchFile } from '@ffmpeg/util';
 import { VideoMetadata, VideoSegment } from '@/types';
 import { toBlobURL } from '@ffmpeg/util';
 
+// Singleton pattern with loading lock
 let ffmpeg: FFmpeg | null = null;
+let isLoading = false;
+let loadingPromise: Promise<FFmpeg> | null = null;
 
-export async function loadFFmpeg() {
+export async function loadFFmpeg(): Promise<FFmpeg> {
+    // If FFmpeg is already loaded, return it immediately
     if (ffmpeg) {
         console.log('Using existing FFmpeg instance');
         return ffmpeg;
     }
 
-    console.log('Creating new FFmpeg instance');
-    try {
-        ffmpeg = new FFmpeg();
-
-        console.log('Loading FFmpeg core...');
-
-        // Use dynamically imported files from node_modules
-        // This leverages Next.js's ability to handle these imports
-        await ffmpeg.load();
-
-        console.log('FFmpeg loaded successfully');
-        return ffmpeg;
-    } catch (error) {
-        console.error('Failed to load FFmpeg:', error);
-        throw new Error(`FFmpeg loading failed: ${error instanceof Error ? error.message : String(error)}`);
+    // If loading is in progress, wait for it to complete instead of starting a new load
+    if (isLoading && loadingPromise) {
+        console.log('FFmpeg loading already in progress, waiting...');
+        return loadingPromise;
     }
+
+    // Start loading process
+    console.log('Creating new FFmpeg instance');
+    isLoading = true;
+
+    loadingPromise = (async () => {
+        try {
+            const instance = new FFmpeg();
+            console.log('Loading FFmpeg core...');
+
+            // Use dynamically imported files from node_modules
+            await instance.load();
+
+            console.log('FFmpeg loaded successfully');
+            ffmpeg = instance;
+            return instance;
+        } catch (error) {
+            console.error('Failed to load FFmpeg:', error);
+            // Reset state on error
+            ffmpeg = null;
+            throw new Error(`FFmpeg loading failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            isLoading = false;
+            loadingPromise = null;
+        }
+    })();
+
+    return loadingPromise;
 }
 
 export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
@@ -147,142 +168,186 @@ export async function createHighlightVideo(
     targetDimensions?: { width: number; height: number },
     onProgress?: (step: string, progress: number, detail?: string) => void
 ): Promise<Blob> {
-    try {
-        onProgress?.('init', 0, 'Initializing FFmpeg');
+    const maxAttempts = 2;
+    let lastError: any = null;
 
-        // Make sure FFmpeg is properly loaded
-        let ffmpegInstance: FFmpeg;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-            ffmpegInstance = await loadFFmpeg();
-            console.log('FFmpeg loaded successfully for video processing');
-        } catch (ffmpegError) {
-            console.error('Failed to load FFmpeg for video processing:', ffmpegError);
-            throw new Error(`Could not initialize video processor: ${ffmpegError instanceof Error ? ffmpegError.message : String(ffmpegError)}`);
-        }
+            onProgress?.('init', 0, attempt > 1 ? `Reinitializing FFmpeg (Attempt ${attempt}/${maxAttempts})` : 'Initializing FFmpeg');
 
-        const fileExt = file.name.split('.').pop() || 'mp4';
-        const inputFileName = `input.${fileExt}`;
-        const outputFileName = `output.${outputFormat}`;
-
-        // Write the input file to the virtual filesystem
-        onProgress?.('writing_input', 10, 'Loading video file');
-        console.log(`Loading file into FFmpeg: ${file.name} (${file.size} bytes)`);
-
-        try {
-            // Extract file content directly without using fetchFile
-            const arrayBuffer = await file.arrayBuffer();
-            const fileData = new Uint8Array(arrayBuffer);
-
-            // Write to FFmpeg's virtual filesystem
-            await ffmpegInstance.writeFile(inputFileName, fileData);
-            console.log(`Successfully loaded file into FFmpeg, size: ${fileData.byteLength} bytes`);
-            onProgress?.('writing_input', 20, 'Video file loaded');
-        } catch (fileError) {
-            console.error('Error loading file into FFmpeg:', fileError);
-            throw new Error(`Failed to load video file: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
-        }
-
-        // List files to verify the input file was written
-        const files = await ffmpegInstance.listDir('./');
-        console.log('Files in FFmpeg filesystem:', files.map(f => f.name));
-
-        // Create a file list with segments for the concat filter
-        let concatContent = '';
-        let index = 0;
-        const totalSegments = segments.length;
-
-        onProgress?.('extracting_segments', 20, `Extracting ${totalSegments} segments`);
-
-        for (const segment of segments) {
-            const segmentFile = `segment-${index}.${outputFormat}`;
-
-            // Calculate segment progress (20-60% of total)
-            const segmentProgress = 20 + Math.floor((index / totalSegments) * 40);
-            onProgress?.('extracting_segments', segmentProgress,
-                `Extracting segment ${index + 1}/${totalSegments} (${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s)`);
-
+            // Make sure FFmpeg is properly loaded
+            let ffmpegInstance: FFmpeg;
             try {
-                // Extract each segment
-                await ffmpegInstance.exec([
-                    '-i', inputFileName,
-                    '-ss', segment.start.toString(),
-                    '-to', segment.end.toString(),
-                    '-c', 'copy',
-                    segmentFile
-                ]);
-                console.log(`Extracted segment ${index + 1}: ${segment.start}s - ${segment.end}s`);
-            } catch (segmentError) {
-                console.error(`Error extracting segment ${index + 1}:`, segmentError);
-                throw new Error(`Failed to extract segment ${index + 1}: ${segmentError instanceof Error ? segmentError.message : String(segmentError)}`);
+                ffmpegInstance = await loadFFmpeg();
+                console.log(`FFmpeg loaded successfully for video processing (Attempt ${attempt}/${maxAttempts})`);
+            } catch (ffmpegError) {
+                console.error('Failed to load FFmpeg for video processing:', ffmpegError);
+                throw new Error(`Could not initialize video processor: ${ffmpegError instanceof Error ? ffmpegError.message : String(ffmpegError)}`);
             }
 
-            concatContent += `file ${segmentFile}\n`;
-            index++;
-        }
+            // Try executing a simple command to verify the FFmpeg instance is valid
+            try {
+                await ffmpegInstance.exec(['-version']);
+                console.log('FFmpeg instance verified');
+            } catch (verifyError) {
+                console.error('FFmpeg instance verification failed:', verifyError);
+                // Force reload of FFmpeg for next attempt
+                ffmpeg = null;
+                throw new Error('FFmpeg instance invalid, forcing reload');
+            }
 
-        // Write the concat file
-        onProgress?.('concatenating', 60, 'Preparing to join segments');
-        await ffmpegInstance.writeFile('concat.txt', new TextEncoder().encode(concatContent));
-        console.log('Created concat file with content:', concatContent);
+            const fileExt = file.name.split('.').pop() || 'mp4';
+            const inputFileName = `input.${fileExt}`;
+            const outputFileName = `output.${outputFormat}`;
 
-        // Concat all segments
-        let command = [
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', 'concat.txt',
-            '-c', 'copy'
-        ];
+            // Write the input file to the virtual filesystem
+            onProgress?.('writing_input', 10, 'Loading video file');
+            console.log(`Loading file into FFmpeg: ${file.name} (${file.size} bytes)`);
 
-        // Apply resize if target dimensions are provided
-        if (targetDimensions) {
-            onProgress?.('concatenating', 65, `Resizing to ${targetDimensions.width}x${targetDimensions.height}`);
-            command = [
+            try {
+                // Extract file content directly without using fetchFile
+                const arrayBuffer = await file.arrayBuffer();
+                const fileData = new Uint8Array(arrayBuffer);
+
+                // Write to FFmpeg's virtual filesystem
+                await ffmpegInstance.writeFile(inputFileName, fileData);
+                console.log(`Successfully loaded file into FFmpeg, size: ${fileData.byteLength} bytes`);
+                onProgress?.('writing_input', 20, 'Video file loaded');
+            } catch (fileError) {
+                console.error('Error loading file into FFmpeg:', fileError);
+                // Force reload of FFmpeg for next attempt
+                ffmpeg = null;
+                throw new Error(`Failed to load video file: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
+            }
+
+            // List files to verify the input file was written
+            const files = await ffmpegInstance.listDir('./');
+            console.log('Files in FFmpeg filesystem:', files.map(f => f.name));
+
+            // Create a file list with segments for the concat filter
+            let concatContent = '';
+            let index = 0;
+            const totalSegments = segments.length;
+
+            onProgress?.('extracting_segments', 20, `Extracting ${totalSegments} segments`);
+
+            for (const segment of segments) {
+                const segmentFile = `segment-${index}.${outputFormat}`;
+
+                // Calculate segment progress (20-60% of total)
+                const segmentProgress = 20 + Math.floor((index / totalSegments) * 40);
+                onProgress?.('extracting_segments', segmentProgress,
+                    `Extracting segment ${index + 1}/${totalSegments} (${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s)`);
+
+                try {
+                    // Extract each segment
+                    await ffmpegInstance.exec([
+                        '-i', inputFileName,
+                        '-ss', segment.start.toString(),
+                        '-to', segment.end.toString(),
+                        '-c', 'copy',
+                        segmentFile
+                    ]);
+                    console.log(`Extracted segment ${index + 1}: ${segment.start}s - ${segment.end}s`);
+                } catch (segmentError) {
+                    console.error(`Error extracting segment ${index + 1}:`, segmentError);
+                    throw new Error(`Failed to extract segment ${index + 1}: ${segmentError instanceof Error ? segmentError.message : String(segmentError)}`);
+                }
+
+                concatContent += `file ${segmentFile}\n`;
+                index++;
+            }
+
+            // Write the concat file
+            onProgress?.('concatenating', 60, 'Preparing to join segments');
+            await ffmpegInstance.writeFile('concat.txt', new TextEncoder().encode(concatContent));
+            console.log('Created concat file with content:', concatContent);
+
+            // Concat all segments
+            let command = [
                 '-f', 'concat',
                 '-safe', '0',
                 '-i', 'concat.txt',
-                '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
-                '-c:v', 'libx264',
-                '-crf', '23',
-                '-preset', 'medium',
-                '-c:a', 'aac'
+                '-c', 'copy'
             ];
-        }
 
-        command.push(outputFileName);
-        onProgress?.('concatenating', 70, 'Joining segments into final video');
-        console.log('Running FFmpeg command:', command.join(' '));
-
-        try {
-            await ffmpegInstance.exec(command);
-            console.log('Successfully joined segments');
-        } catch (concatError) {
-            console.error('Error joining segments:', concatError);
-            throw new Error(`Failed to join segments: ${concatError instanceof Error ? concatError.message : String(concatError)}`);
-        }
-
-        // Read the output file
-        onProgress?.('finalizing', 90, 'Creating final video file');
-
-        try {
-            const data = await ffmpegInstance.readFile(outputFileName);
-            if (!data) {
-                throw new Error('Failed to read output file, data is null');
+            // Apply resize if target dimensions are provided
+            if (targetDimensions) {
+                onProgress?.('concatenating', 65, `Resizing to ${targetDimensions.width}x${targetDimensions.height}`);
+                command = [
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-i', 'concat.txt',
+                    '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
+                    '-c:v', 'libx264',
+                    '-crf', '23',
+                    '-preset', 'medium',
+                    '-c:a', 'aac'
+                ];
             }
 
-            const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
-            const outputBlob = new Blob([data], { type: mimeType });
-            console.log(`Successfully created output file, size: ${outputBlob.size} bytes`);
+            command.push(outputFileName);
+            onProgress?.('concatenating', 70, 'Joining segments into final video');
+            console.log('Running FFmpeg command:', command.join(' '));
 
-            onProgress?.('finalizing', 100, 'Video processing complete');
-            return outputBlob;
-        } catch (outputError) {
-            console.error('Error reading output file:', outputError);
-            throw new Error(`Failed to read output file: ${outputError instanceof Error ? outputError.message : String(outputError)}`);
+            try {
+                await ffmpegInstance.exec(command);
+                console.log('Successfully joined segments');
+            } catch (concatError) {
+                console.error('Error joining segments:', concatError);
+                throw new Error(`Failed to join segments: ${concatError instanceof Error ? concatError.message : String(concatError)}`);
+            }
+
+            // Read the output file
+            onProgress?.('finalizing', 90, 'Creating final video file');
+
+            try {
+                const data = await ffmpegInstance.readFile(outputFileName);
+                if (!data) {
+                    throw new Error('Failed to read output file, data is null');
+                }
+
+                const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
+                const outputBlob = new Blob([data], { type: mimeType });
+                console.log(`Successfully created output file, size: ${outputBlob.size} bytes`);
+
+                // Clean up files to prevent memory leaks and filesystem errors
+                try {
+                    // List and remove all files created during the process
+                    const allFiles = await ffmpegInstance.listDir('./');
+                    for (const file of allFiles) {
+                        if (file.name !== '.' && file.name !== '..') {
+                            await ffmpegInstance.deleteFile(file.name);
+                        }
+                    }
+                    console.log('Cleaned up FFmpeg virtual filesystem');
+                } catch (cleanupError) {
+                    console.warn('Non-fatal error during filesystem cleanup:', cleanupError);
+                    // Don't throw - we already have the output blob
+                }
+
+                onProgress?.('finalizing', 100, 'Video processing complete');
+                return outputBlob;
+            } catch (outputError) {
+                console.error('Error reading output file:', outputError);
+                throw new Error(`Failed to read output file: ${outputError instanceof Error ? outputError.message : String(outputError)}`);
+            }
+
+        } catch (error) {
+            console.error(`Error in createHighlightVideo (Attempt ${attempt}/${maxAttempts}):`, error);
+            lastError = error;
+
+            // If not the last attempt, wait a bit before retrying
+            if (attempt < maxAttempts) {
+                console.log(`Retrying in 1 second... (Attempt ${attempt}/${maxAttempts})`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
         }
-    } catch (error) {
-        console.error('Error in createHighlightVideo:', error);
-        throw error;
     }
+
+    // If we reach here, all attempts failed
+    console.error(`All ${maxAttempts} attempts failed in createHighlightVideo`);
+    throw lastError || new Error('Failed to process video after multiple attempts');
 }
 
 // Function to create platform-specific output formats
