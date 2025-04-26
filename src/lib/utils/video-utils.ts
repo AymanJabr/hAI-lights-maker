@@ -10,15 +10,36 @@ declare global {
     }
 }
 
-// Singleton pattern with loading lock
+// Improved FFmpeg management with proper cleanup
 let ffmpeg: FFmpeg | null = null;
 let isLoading = false;
 let loadingPromise: Promise<FFmpeg> | null = null;
+let usageCount = 0;
+let lastOperationTime = Date.now();
+
+// Force reload FFmpeg if it gets stuck
+const forceReloadThreshold = 2; // Reduced from 3 to 2 to be more aggressive about resource cleanup
+const maxIdleTime = 30000; // 30 seconds (reduced from 60)
+let lastUsageTime = Date.now();
 
 export async function loadFFmpeg(): Promise<FFmpeg> {
+    const currentTime = Date.now();
+
+    // Reset FFmpeg if it hasn't been used for a while or usage count is high
+    if (ffmpeg && (
+        (currentTime - lastUsageTime > maxIdleTime) ||
+        (usageCount >= forceReloadThreshold) ||
+        (currentTime - lastOperationTime > 10000) // Force reload if no operation in 10 seconds
+    )) {
+        console.log(`Forcing FFmpeg reload: idle time=${(currentTime - lastUsageTime) / 1000}s, usage count=${usageCount}, op idle=${(currentTime - lastOperationTime) / 1000}s`);
+        await releaseFFmpeg();
+    }
+
     // If FFmpeg is already loaded, return it immediately
     if (ffmpeg) {
         console.log('Using existing FFmpeg instance');
+        usageCount++;
+        lastUsageTime = currentTime;
         return ffmpeg;
     }
 
@@ -31,6 +52,7 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
     // Start loading process
     console.log('Creating new FFmpeg instance');
     isLoading = true;
+    usageCount = 0;
 
     loadingPromise = (async () => {
         try {
@@ -42,6 +64,9 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
 
             console.log('FFmpeg loaded successfully');
             ffmpeg = instance;
+            lastUsageTime = Date.now();
+            lastOperationTime = Date.now();
+            usageCount = 1;
             return instance;
         } catch (error) {
             console.error('Failed to load FFmpeg:', error);
@@ -55,6 +80,32 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
     })();
 
     return loadingPromise;
+}
+
+// Properly release FFmpeg resources
+export async function releaseFFmpeg(): Promise<void> {
+    if (!ffmpeg) return;
+
+    try {
+        console.log('Releasing FFmpeg instance');
+
+        try {
+            // Try to terminate the FFmpeg worker
+            await ffmpeg.terminate();
+        } catch (error) {
+            console.warn('Error terminating FFmpeg worker:', error);
+        }
+
+        // Reset state regardless of success
+        ffmpeg = null;
+        usageCount = 0;
+        console.log('FFmpeg instance released');
+    } catch (error) {
+        console.error('Error releasing FFmpeg:', error);
+        // Force reset state even if error occurs
+        ffmpeg = null;
+        usageCount = 0;
+    }
 }
 
 export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
@@ -133,39 +184,55 @@ export async function extractFrames(
     targetFps: number = 1,
     outputFormat: 'jpeg' | 'png' = 'jpeg'
 ): Promise<Blob[]> {
-    const ffmpeg = await loadFFmpeg();
+    const ffmpegInstance = await loadFFmpeg();
     const inputFileName = 'input.' + file.name.split('.').pop();
 
-    // Write the file to FFmpeg's virtual file system
-    await ffmpeg.writeFile(inputFileName, await fetchFile(file));
+    try {
+        // Write the file to FFmpeg's virtual file system
+        await ffmpegInstance.writeFile(inputFileName, await fetchFile(file));
 
-    // Extract frames at the specified frame rate
-    const outputPattern = 'frame-%03d.' + outputFormat;
-    await ffmpeg.exec([
-        '-i', inputFileName,
-        '-vf', `fps=${targetFps}`,
-        '-q:v', '1',
-        outputPattern
-    ]);
+        // Extract frames at the specified frame rate
+        const outputPattern = 'frame-%03d.' + outputFormat;
+        await ffmpegInstance.exec([
+            '-i', inputFileName,
+            '-vf', `fps=${targetFps}`,
+            '-q:v', '1',
+            outputPattern
+        ]);
 
-    // Get list of frame files
-    const frameFiles = await ffmpeg.listDir('./');
-    const frameFilenames = frameFiles
-        .filter(file => file.name.startsWith('frame-') && file.name.endsWith(`.${outputFormat}`))
-        .map(file => file.name)
-        .sort();
+        // Get list of frame files
+        const frameFiles = await ffmpegInstance.listDir('./');
+        const frameFilenames = frameFiles
+            .filter(file => file.name.startsWith('frame-') && file.name.endsWith(`.${outputFormat}`))
+            .map(file => file.name)
+            .sort();
 
-    // Read each frame file
-    const frames: Blob[] = [];
-    for (const filename of frameFilenames) {
-        const data = await ffmpeg.readFile(filename);
-        if (data) {
-            const blob = new Blob([data], { type: `image/${outputFormat}` });
-            frames.push(blob);
+        // Read each frame file
+        const frames: Blob[] = [];
+        for (const filename of frameFilenames) {
+            const data = await ffmpegInstance.readFile(filename);
+            if (data) {
+                const blob = new Blob([data], { type: `image/${outputFormat}` });
+                frames.push(blob);
+            }
+        }
+
+        // Clean up files to prevent memory leaks
+        for (const filename of frameFilenames) {
+            await ffmpegInstance.deleteFile(filename);
+        }
+        await ffmpegInstance.deleteFile(inputFileName);
+
+        return frames;
+    } catch (error) {
+        console.error('Error extracting frames:', error);
+        throw error;
+    } finally {
+        // If usage count is high, release resources
+        if (usageCount >= forceReloadThreshold) {
+            await releaseFFmpeg();
         }
     }
-
-    return frames;
 }
 
 export async function createHighlightVideo(
@@ -178,9 +245,18 @@ export async function createHighlightVideo(
     const maxAttempts = 2;
     let lastError: any = null;
 
+    // Record operation start time for tracking
+    lastOperationTime = Date.now();
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             onProgress?.('init', 0, attempt > 1 ? `Reinitializing FFmpeg (Attempt ${attempt}/${maxAttempts})` : 'Initializing FFmpeg');
+
+            // Fresh FFmpeg instance for each major operation
+            if (attempt > 1 || usageCount >= forceReloadThreshold) {
+                console.log("Releasing FFmpeg before new highlight video creation");
+                await releaseFFmpeg();
+            }
 
             // Make sure FFmpeg is properly loaded
             let ffmpegInstance: FFmpeg;
@@ -189,8 +265,15 @@ export async function createHighlightVideo(
                 console.log(`FFmpeg loaded successfully for video processing (Attempt ${attempt}/${maxAttempts})`);
             } catch (ffmpegError) {
                 console.error('Failed to load FFmpeg for video processing:', ffmpegError);
+
+                // Force reload on error
+                await releaseFFmpeg();
+
                 throw new Error(`Could not initialize video processor: ${ffmpegError instanceof Error ? ffmpegError.message : String(ffmpegError)}`);
             }
+
+            // Track that we're in an active operation
+            lastOperationTime = Date.now();
 
             // Try executing a simple command to verify the FFmpeg instance is valid
             try {
@@ -199,13 +282,14 @@ export async function createHighlightVideo(
             } catch (verifyError) {
                 console.error('FFmpeg instance verification failed:', verifyError);
                 // Force reload of FFmpeg for next attempt
-                ffmpeg = null;
+                await releaseFFmpeg();
                 throw new Error('FFmpeg instance invalid, forcing reload');
             }
 
             const fileExt = file.name.split('.').pop() || 'mp4';
             const inputFileName = `input.${fileExt}`;
             const outputFileName = `output.${outputFormat}`;
+            const finalOutputFileName = `final-output.${outputFormat}`;
 
             // Write the input file to the virtual filesystem
             onProgress?.('writing_input', 10, 'Loading video file');
@@ -220,10 +304,13 @@ export async function createHighlightVideo(
                 await ffmpegInstance.writeFile(inputFileName, fileData);
                 console.log(`Successfully loaded file into FFmpeg, size: ${fileData.byteLength} bytes`);
                 onProgress?.('writing_input', 20, 'Video file loaded');
+
+                // Update operation timestamp
+                lastOperationTime = Date.now();
             } catch (fileError) {
                 console.error('Error loading file into FFmpeg:', fileError);
                 // Force reload of FFmpeg for next attempt
-                ffmpeg = null;
+                await releaseFFmpeg();
                 throw new Error(`Failed to load video file: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
             }
 
@@ -238,7 +325,86 @@ export async function createHighlightVideo(
 
             onProgress?.('extracting_segments', 20, `Extracting ${totalSegments} segments`);
 
+            // For a single segment case, handle it differently to avoid concat issues
+            if (segments.length === 1) {
+                const segment = segments[0];
+                // Update operation timestamp
+                lastOperationTime = Date.now();
+
+                onProgress?.('extracting_segments', 40,
+                    `Extracting segment (${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s)`);
+
+                try {
+                    // Extract the single segment directly to the output file
+                    let extractCommand = [
+                        '-i', inputFileName,
+                        '-ss', segment.start.toString(),
+                        '-to', segment.end.toString()
+                    ];
+
+                    // Apply resize if target dimensions are provided
+                    if (targetDimensions) {
+                        extractCommand = extractCommand.concat([
+                            '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
+                            '-c:v', 'libx264',
+                            '-crf', '23',
+                            '-preset', 'medium',
+                            '-c:a', 'aac'
+                        ]);
+                    } else {
+                        extractCommand = extractCommand.concat(['-c', 'copy']);
+                    }
+
+                    extractCommand.push(outputFileName);
+                    console.log('Running FFmpeg command for single segment:', extractCommand.join(' '));
+
+                    await ffmpegInstance.exec(extractCommand);
+                    console.log(`Extracted single segment: ${segment.start}s - ${segment.end}s directly to output`);
+
+                    onProgress?.('finalizing', 90, 'Creating final video file');
+
+                    // Read the output file directly
+                    const data = await ffmpegInstance.readFile(outputFileName);
+                    if (!data) {
+                        throw new Error('Failed to read output file, data is null');
+                    }
+
+                    const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
+                    const outputBlob = new Blob([data], { type: mimeType });
+                    console.log(`Successfully created output file, size: ${outputBlob.size} bytes`);
+
+                    // Store the blob in a global variable for recovery if needed
+                    if (typeof window !== 'undefined') {
+                        window._lastCreatedVideoBlob = outputBlob;
+                        console.log('Saved video blob to window._lastCreatedVideoBlob for recovery');
+                    }
+
+                    // Clean up files
+                    try {
+                        await ffmpegInstance.deleteFile(inputFileName);
+                        await ffmpegInstance.deleteFile(outputFileName);
+                        console.log('Cleaned up FFmpeg files for single segment');
+                    } catch (cleanupError) {
+                        console.warn('Non-fatal error during cleanup:', cleanupError);
+                    }
+
+                    // Release FFmpeg
+                    await releaseFFmpeg();
+
+                    onProgress?.('finalizing', 100, 'Video processing complete');
+                    return outputBlob;
+                } catch (segmentError) {
+                    console.error(`Error processing single segment:`, segmentError);
+                    await releaseFFmpeg();
+                    throw new Error(`Failed to process segment: ${segmentError instanceof Error ? segmentError.message : String(segmentError)}`);
+                }
+            }
+
+            // Multiple segments case - extract each segment first
             for (const segment of segments) {
+                // Update operation timestamp for each segment
+                lastOperationTime = Date.now();
+
                 const segmentFile = `segment-${index}.${outputFormat}`;
 
                 // Calculate segment progress (20-60% of total)
@@ -265,6 +431,9 @@ export async function createHighlightVideo(
                 index++;
             }
 
+            // Update operation timestamp
+            lastOperationTime = Date.now();
+
             // Write the concat file
             onProgress?.('concatenating', 60, 'Preparing to join segments');
             await ffmpegInstance.writeFile('concat.txt', new TextEncoder().encode(concatContent));
@@ -274,49 +443,52 @@ export async function createHighlightVideo(
             let command = [
                 '-f', 'concat',
                 '-safe', '0',
-                '-i', 'concat.txt',
-                '-c', 'copy'
+                '-i', 'concat.txt'
             ];
 
             // Apply resize if target dimensions are provided
             if (targetDimensions) {
                 onProgress?.('concatenating', 65, `Resizing to ${targetDimensions.width}x${targetDimensions.height}`);
-                command = [
-                    '-f', 'concat',
-                    '-safe', '0',
-                    '-i', 'concat.txt',
+                command = command.concat([
                     '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
                     '-c:v', 'libx264',
                     '-crf', '23',
                     '-preset', 'medium',
                     '-c:a', 'aac'
-                ];
+                ]);
+            } else {
+                command = command.concat(['-c', 'copy']);
             }
 
-            command.push(outputFileName);
+            command.push(finalOutputFileName);
             onProgress?.('concatenating', 70, 'Joining segments into final video');
             console.log('Running FFmpeg command:', command.join(' '));
 
             try {
+                console.log('Starting final concatenation...');
                 await ffmpegInstance.exec(command);
-                console.log('Successfully joined segments');
+                console.log('Successfully joined segments into final video');
+
+                // Update operation timestamp
+                lastOperationTime = Date.now();
             } catch (concatError) {
                 console.error('Error joining segments:', concatError);
                 throw new Error(`Failed to join segments: ${concatError instanceof Error ? concatError.message : String(concatError)}`);
             }
 
-            // Read the output file
+            // Read the output file (using the final output filename)
             onProgress?.('finalizing', 90, 'Creating final video file');
 
             try {
-                const data = await ffmpegInstance.readFile(outputFileName);
+                // Read the final concatenated file
+                const data = await ffmpegInstance.readFile(finalOutputFileName);
                 if (!data) {
-                    throw new Error('Failed to read output file, data is null');
+                    throw new Error('Failed to read final output file, data is null');
                 }
 
                 const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
                 const outputBlob = new Blob([data], { type: mimeType });
-                console.log(`Successfully created output file, size: ${outputBlob.size} bytes`);
+                console.log(`Successfully created final output file, size: ${outputBlob.size} bytes`);
 
                 // Add enhanced logging to ensure file is ready
                 console.log(`Video processing COMPLETE - Output blob created successfully`);
@@ -346,16 +518,25 @@ export async function createHighlightVideo(
                     // Don't throw - we already have the output blob
                 }
 
+                // Always release FFmpeg when processing is complete
+                console.log(`Releasing FFmpeg after video processing (usage: ${usageCount})`);
+                await releaseFFmpeg();
+
                 onProgress?.('finalizing', 100, 'Video processing complete');
                 return outputBlob;
             } catch (outputError) {
-                console.error('Error reading output file:', outputError);
-                throw new Error(`Failed to read output file: ${outputError instanceof Error ? outputError.message : String(outputError)}`);
+                console.error('Error reading final output file:', outputError);
+                // Force FFmpeg reload on error
+                await releaseFFmpeg();
+                throw new Error(`Failed to read final output file: ${outputError instanceof Error ? outputError.message : String(outputError)}`);
             }
 
         } catch (error) {
             console.error(`Error in createHighlightVideo (Attempt ${attempt}/${maxAttempts}):`, error);
             lastError = error;
+
+            // Always release FFmpeg on error
+            await releaseFFmpeg();
 
             // If not the last attempt, wait a bit before retrying
             if (attempt < maxAttempts) {

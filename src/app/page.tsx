@@ -30,8 +30,9 @@ export default function Home() {
     const [processedVideo, setProcessedVideo] = useState<ProcessedVideo | null>(null);
     const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
     const [transcript, setTranscript] = useState<string>('');
+    const [error, setError] = useState<string | null>(null);
 
-    const { transcribeAudio, findHighlights, isLoading, error } = useOpenAI({ apiKey: apiConfig?.apiKey });
+    const { transcribeAudio, findHighlights, isLoading, error: openAIError } = useOpenAI({ apiKey: apiConfig?.apiKey });
 
     const handleApiConfigured = (config: ApiKeyConfigType) => {
         setApiConfig(config);
@@ -171,6 +172,9 @@ export default function Home() {
             console.log(`Highlight mode: ${highlightConfig.mode}`);
             console.log(`Target platform: ${highlightConfig.targetPlatform}`);
 
+            // Clear any previous highlight URLs
+            setHighlightUrls({});
+
             // Extract audio and transcribe
             updateProgress('transcribing', 0, 'Extracting audio...');
             console.log('Step 1: Extracting audio from video');
@@ -216,77 +220,73 @@ export default function Home() {
                 console.log(`Segment ${i + 1}: ${segment.start.toFixed(2)}s - ${segment.end.toFixed(2)}s (${(segment.end - segment.start).toFixed(2)}s) - ${segment.description || 'No description'}`);
             });
 
-            // Update processed video with segments
+            // Update processed video with segments right away
+            // This ensures segments show up immediately without waiting for combined video
             setProcessedVideo(prev => prev ? {
                 ...prev,
                 segments,
                 transcript: transcriptionResult.text,
             } : null);
 
-            updateProgress('processing', 70, 'Generating highlight video...');
-            console.log('Step 4: Generating highlight videos');
+            // Mark process as completed after finding segments
+            updateProgress('completed', 100, 'Segments identified and ready for viewing');
+            console.log('--- Segment analysis complete ---');
+
+        } catch (err) {
+            console.error('Error during video processing:', err);
+            updateProgress('error', 0, err instanceof Error ? err.message : 'Failed to process video');
+        }
+    };
+
+    // New function to combine segments into one video
+    const combineSegments = async () => {
+        if (!processedVideo?.segments || !videoFile) {
+            console.error('No segments or video file available for combining');
+            return;
+        }
+
+        try {
+            // Update progress to indicate we're starting the combination process
+            setProgress({
+                status: 'processing',
+                progress: 70,
+                message: 'Starting to combine segments...'
+            });
+
+            console.log('--- Starting segment combination ---');
+            console.log(`Combining ${processedVideo.segments.length} segments into one video`);
 
             // Generate the highlight video based on platform
-            if (highlightConfig.targetPlatform === 'all') {
-                // Generate all formats
-                console.log('Creating videos for all platforms (YouTube, TikTok, Instagram)');
-                const processingStart = performance.now();
+            let dimensions;
+            switch (highlightConfig.targetPlatform) {
+                case 'youtube':
+                    dimensions = { width: 1920, height: 1080 }; // 16:9
+                    break;
+                case 'tiktok':
+                    dimensions = { width: 1080, height: 1920 }; // 9:16
+                    break;
+                case 'instagram':
+                    dimensions = { width: 1080, height: 1080 }; // 1:1
+                    break;
+            }
 
-                const outputs = await createPlatformSpecificVideos(
-                    videoFile,
-                    segments,
-                    (step, progress, detail) => {
-                        console.log(`Processing: ${step} - ${detail}`);
-                        // Scale progress from 70-95%
-                        const scaledProgress = 70 + (progress * 0.25);
-                        updateProgress('processing', scaledProgress, detail || `Processing video (${step})...`);
-                    }
-                );
+            const processingStart = performance.now();
 
-                const processingTime = ((performance.now() - processingStart) / 1000).toFixed(2);
-                console.log(`Video processing completed in ${processingTime}s`);
-
-                // Create object URLs for each output
-                const urls: Record<string, string> = {};
-                Object.entries(outputs).forEach(([platform, blob]) => {
-                    urls[platform] = URL.createObjectURL(blob);
-                    console.log(`Created ${platform} video: ${(blob.size / (1024 * 1024)).toFixed(2)}MB URL: ${urls[platform]}`);
-                });
-
-                // Explicitly set highlight URLs and ensure they're available
-                console.log('Setting highlight URLs:', Object.keys(urls));
-                setHighlightUrls(urls);
-
-                // Force a small delay to ensure state updates propagate
-                await new Promise(resolve => setTimeout(resolve, 100));
-            } else {
-                // Generate just the selected format
-                let dimensions;
-                switch (highlightConfig.targetPlatform) {
-                    case 'youtube':
-                        dimensions = { width: 1920, height: 1080 }; // 16:9
-                        break;
-                    case 'tiktok':
-                        dimensions = { width: 1080, height: 1920 }; // 9:16
-                        break;
-                    case 'instagram':
-                        dimensions = { width: 1080, height: 1080 }; // 1:1
-                        break;
-                }
-
-                console.log(`Creating video for ${highlightConfig.targetPlatform} platform`);
-                const processingStart = performance.now();
-
+            try {
                 const highlightVideo = await createHighlightVideo(
                     videoFile,
-                    segments,
+                    processedVideo.segments,
                     'mp4',
                     dimensions,
                     (step, progress, detail) => {
                         console.log(`Processing: ${step} - ${detail}`);
                         // Scale progress from 70-95%
                         const scaledProgress = 70 + (progress * 0.25);
-                        updateProgress('processing', scaledProgress, detail || `Processing video (${step})...`);
+                        setProgress({
+                            status: 'processing',
+                            progress: scaledProgress,
+                            message: detail || `Processing video (${step})...`
+                        });
                     }
                 );
 
@@ -297,47 +297,89 @@ export default function Home() {
                 const highlightUrl = URL.createObjectURL(highlightVideo);
                 console.log(`Created URL: ${highlightUrl}`);
 
-                // Explicitly set highlight URLs and verify
-                const newHighlightUrls = { [highlightConfig.targetPlatform]: highlightUrl };
-                console.log('Setting highlight URLs:', Object.keys(newHighlightUrls));
-
-                // Use a function version of setHighlightUrls to ensure we're getting the latest state
-                setHighlightUrls(prev => {
-                    console.log('Previous highlight URLs:', Object.keys(prev));
-                    return newHighlightUrls;
-                });
+                // Set highlight URLs
+                setHighlightUrls({ [highlightConfig.targetPlatform]: highlightUrl });
 
                 // Force a small delay to ensure state updates propagate
-                await new Promise(resolve => setTimeout(resolve, 100));
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                // Mark combination as completed
+                setProgress({
+                    status: 'completed',
+                    progress: 100,
+                    message: 'Combined video ready!'
+                });
+            } catch (error) {
+                console.error('Error creating combined video:', error);
+                setProgress({
+                    status: 'error',
+                    progress: 0,
+                    message: `Failed to combine segments: ${error instanceof Error ? error.message : String(error)}`
+                });
             }
-
-            console.log('--- Video processing complete ---');
-            // Set progress to completed AFTER ensuring highlight URLs are set
-            // Force a final state check before completing
-            const hasUrls = Object.keys(highlightUrls).length > 0;
-            console.log(`Final state check - Has URLs: ${hasUrls ? 'YES' : 'NO'}, Count: ${Object.keys(highlightUrls).length}`);
-
-            if (!hasUrls) {
-                console.log('WARNING: No highlight URLs set before completing. Rechecking state...');
-                // Wait a bit longer to see if state updates
-                await new Promise(resolve => setTimeout(resolve, 500));
-
-                // If still no URLs, create a fresh URL from the cached blob as a fallback
-                if (typeof window !== 'undefined' && window._lastCreatedVideoBlob && Object.keys(highlightUrls).length === 0) {
-                    console.log('Creating fallback URL from cached blob');
-                    const fallbackUrl = URL.createObjectURL(window._lastCreatedVideoBlob);
-                    setHighlightUrls({ fallback: fallbackUrl });
-
-                    // Wait once more to ensure state updates
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-            }
-
-            updateProgress('completed', 100, 'Highlight video ready!');
         } catch (err) {
-            console.error('Error during video processing:', err);
-            updateProgress('error', 0, err instanceof Error ? err.message : 'Failed to process video');
+            console.error('Error combining segments:', err);
+            setProgress({
+                status: 'error',
+                progress: 0,
+                message: err instanceof Error ? err.message : 'Failed to combine segments'
+            });
         }
+    };
+
+    // Render the combined video section only if segments exist
+    const renderCombinedVideoSection = () => {
+        // Only show if there are segments
+        if (!processedVideo?.segments?.length) return null;
+
+        return (
+            <div className="mt-10 mb-6">
+                <h2 className="text-xl font-bold mb-6">Combined Highlight Video</h2>
+                {Object.keys(highlightUrls).length > 0 ? (
+                    <div>
+                        <div className="mb-6">
+                            <div className="border border-gray-200 rounded-lg p-4">
+                                <h3 className="text-lg font-medium mb-2">Complete Highlight</h3>
+                                <VideoPlayer
+                                    src={Object.values(highlightUrls)[0]}
+                                    segments={processedVideo.segments}
+                                    autoPlay={false}
+                                />
+                                <a
+                                    href={Object.values(highlightUrls)[0]}
+                                    download={`highlight.mp4`}
+                                    className="mt-4 inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                                >
+                                    Download Highlight Video
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                ) : progress.status === 'processing' ? (
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center">
+                        <svg className="animate-spin h-5 w-5 text-blue-600 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span className="text-blue-700">Generating combined highlight video... {Math.round(progress.progress)}%</span>
+                    </div>
+                ) : (
+                    <div className="p-4 bg-white border border-gray-200 rounded-lg">
+                        <h3 className="text-lg font-medium mb-2">Create a Combined Video</h3>
+                        <p className="text-gray-600 mb-4">
+                            You can combine all segments into a single highlight video. This may take a few moments to process.
+                        </p>
+                        <button
+                            onClick={combineSegments}
+                            disabled={progress.status === 'processing'}
+                            className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
+                        >
+                            {progress.status === 'processing' ? 'Processing...' : 'Combine Segments Into Video'}
+                        </button>
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const renderMainContent = () => {
@@ -399,11 +441,11 @@ export default function Home() {
                                 >
                                     {isLoading || progress.status !== 'idle'
                                         ? 'Processing...'
-                                        : 'Generate Highlights'}
+                                        : 'Generate Segments'}
                                 </button>
 
-                                {error && (
-                                    <p className="mt-2 text-sm text-red-600">{error}</p>
+                                {openAIError && (
+                                    <p className="mt-2 text-sm text-red-600">{openAIError}</p>
                                 )}
                             </div>
                         </div>
@@ -412,7 +454,7 @@ export default function Home() {
             );
         }
 
-        // Step 4: View and download results
+        // Step 4: View segments and optionally create combined video
         if (processedVideo?.segments?.length) {
             return (
                 <div className="w-full">
@@ -468,100 +510,7 @@ export default function Home() {
                     )}
 
                     {/* Combined Highlight Video Section */}
-                    <div className="mt-10 mb-6">
-                        <h2 className="text-xl font-bold mb-6">Combined Highlight Video</h2>
-                        {Object.keys(highlightUrls).length > 0 ? (
-                            <div>
-                                <div className="mb-6">
-                                    {Object.keys(highlightUrls).length === 1 ? (
-                                        <div className="border border-gray-200 rounded-lg p-4">
-                                            <h3 className="text-lg font-medium mb-2">Complete Highlight</h3>
-                                            <VideoPlayer
-                                                src={Object.values(highlightUrls)[0]}
-                                                segments={processedVideo.segments}
-                                                autoPlay={false}
-                                            />
-                                            <a
-                                                href={Object.values(highlightUrls)[0]}
-                                                download={`highlight.mp4`}
-                                                className="mt-4 inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                                            >
-                                                Download Highlight Video
-                                            </a>
-                                        </div>
-                                    ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {Object.entries(highlightUrls).map(([platform, url]) => (
-                                                <div key={platform} className="border border-gray-200 rounded-lg p-4">
-                                                    <h4 className="font-medium mb-2 capitalize">{platform} Format</h4>
-                                                    <VideoPlayer src={url} autoPlay={false} />
-                                                    <a
-                                                        href={url}
-                                                        download={`highlight-${platform}.mp4`}
-                                                        className="mt-2 inline-block py-2 px-4 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
-                                                    >
-                                                        Download
-                                                    </a>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="text-sm text-gray-500 mt-2">
-                                    Debug info: {Object.keys(highlightUrls).length} URLs available
-                                </div>
-                            </div>
-                        ) : progress.status === 'completed' ? (
-                            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                                <h3 className="text-lg font-medium text-yellow-800 mb-2">Highlight Video Processing</h3>
-                                <p className="text-yellow-700">
-                                    Your highlight video has been generated, but the combined video isn't available yet.
-                                    You can view and download individual segments above.
-                                </p>
-                                <button
-                                    onClick={() => {
-                                        // Attempt to force reload the processing
-                                        console.log('Attempting to force video display refresh');
-                                        setProgress({ status: 'processing', progress: 99, message: 'Finalizing video...' });
-                                        setTimeout(() => {
-                                            setProgress({ status: 'completed', progress: 100, message: 'Highlight video ready!' });
-                                        }, 1000);
-                                    }}
-                                    className="mt-3 py-2 px-4 bg-yellow-100 text-yellow-800 rounded-md hover:bg-yellow-200 transition-colors"
-                                >
-                                    Retry Load
-                                </button>
-                                <div className="mt-3 border-t border-yellow-200 pt-3">
-                                    <button
-                                        onClick={() => {
-                                            console.log('DEBUG: Manual display of combined video');
-                                            // Try to force the combined video to display by manually setting the URLs
-                                            // First check if there are any blobs in memory
-                                            if (window._lastCreatedVideoBlob) {
-                                                console.log('Found cached video blob, creating URL');
-                                                const url = URL.createObjectURL(window._lastCreatedVideoBlob);
-                                                setHighlightUrls({ manual: url });
-                                            } else {
-                                                console.log('No cached video blob found');
-                                                alert('No cached video found. Please refresh and try again.');
-                                            }
-                                        }}
-                                        className="px-3 py-1 text-xs bg-yellow-50 text-yellow-700 border border-yellow-300 rounded"
-                                    >
-                                        Debug: Manual Display
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center">
-                                <svg className="animate-spin h-5 w-5 text-blue-600 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span className="text-blue-700">Generating combined highlight video... {Math.round(progress.progress)}%</span>
-                            </div>
-                        )}
-                    </div>
+                    {renderCombinedVideoSection()}
                 </div>
             );
         }

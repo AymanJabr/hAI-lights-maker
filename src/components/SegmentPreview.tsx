@@ -6,122 +6,258 @@ interface SegmentPreviewProps {
     index: number;
     originalVideo: File;
     onMaximize?: (segment: VideoSegment, url: string) => void;
+    ready?: boolean; // New prop to control when processing starts
 }
 
-export default function SegmentPreview({ segment, index, originalVideo, onMaximize }: SegmentPreviewProps) {
+// Create a task manager for sequential processing
+type Task = {
+    id: number;
+    execute: () => Promise<void>;
+    onComplete?: () => void;
+    onFailure?: (error: unknown) => void;
+    priority?: number; // Lower number = higher priority
+};
+
+// Global task queue and processing state
+const taskQueue: Task[] = [];
+let isProcessing = false;
+let nextTaskId = 1;
+let activeTaskId: number | null = null;
+
+// Process one task at a time with retries
+async function processNextTask() {
+    if (isProcessing || taskQueue.length === 0) return;
+
+    isProcessing = true;
+
+    // Sort by priority (if set)
+    taskQueue.sort((a, b) => (a.priority || 999) - (b.priority || 999));
+
+    const currentTask = taskQueue.shift();
+
+    if (currentTask) {
+        activeTaskId = currentTask.id;
+        console.log(`Processing task ID: ${currentTask.id}${currentTask.priority ? ` (priority: ${currentTask.priority})` : ''}`);
+
+        let success = false;
+        let retries = 0;
+        const maxRetries = 1;
+
+        while (!success && retries <= maxRetries) {
+            try {
+                if (retries > 0) {
+                    console.log(`Retry attempt ${retries} for task ID: ${currentTask.id}`);
+                    // Small delay before retry
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                await currentTask.execute();
+                console.log(`Completed task ID: ${currentTask.id}`);
+                // Call the completion callback if provided
+                currentTask.onComplete?.();
+                success = true;
+            } catch (error) {
+                console.error(`Error in task ID: ${currentTask.id}:`, error);
+                retries++;
+
+                if (retries > maxRetries) {
+                    console.error(`Task ID: ${currentTask.id} failed after ${maxRetries} retries`);
+                    // Call failure callback if provided
+                    currentTask.onFailure?.(error);
+                }
+            }
+        }
+
+        isProcessing = false;
+        activeTaskId = null;
+        // Continue with next task with a small delay
+        setTimeout(processNextTask, 100); // Small delay to prevent CPU hogging
+    } else {
+        isProcessing = false;
+    }
+}
+
+// Allow canceling a task by ID
+function cancelTask(id: number): boolean {
+    const index = taskQueue.findIndex(task => task.id === id);
+    if (index !== -1) {
+        taskQueue.splice(index, 1);
+        console.log(`Canceled task ID: ${id}`);
+        return true;
+    }
+    return false;
+}
+
+// Check if the queue has tasks for a specific segment
+function hasTasksForSegment(segmentIndex: number): boolean {
+    return taskQueue.some(task => task.id.toString().includes(`-seg${segmentIndex}-`));
+}
+
+export default function SegmentPreview({ segment, index, originalVideo, onMaximize, ready = false }: SegmentPreviewProps) {
     const [isLoading, setIsLoading] = useState(true);
     const [loadingProgress, setLoadingProgress] = useState(0);
-    const [loadingStatus, setLoadingStatus] = useState('Initializing...');
+    const [loadingStatus, setLoadingStatus] = useState(ready ? 'Waiting in queue...' : 'Queued...');
     const [segmentUrl, setSegmentUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
-    const processingRef = useRef<boolean>(false);
+    const taskId = useRef<number>(nextTaskId++);
+    const segmentInfo = useRef<string>(`${segment.start.toFixed(2)}-${segment.end.toFixed(2)}`);
+    const isMounted = useRef<boolean>(true);
+    const processingStarted = useRef<boolean>(false);
+
+    // Update loading status when ready changes
+    useEffect(() => {
+        if (ready && isLoading) {
+            setLoadingStatus('Waiting in queue...');
+        }
+    }, [ready, isLoading]);
 
     useEffect(() => {
-        let isMounted = true;
-        // Prevent concurrent processing attempts
-        if (processingRef.current) return;
-        processingRef.current = true;
+        // Set isMounted ref
+        isMounted.current = true;
 
+        // Function to generate a video for this segment
         const generateSegmentVideo = async () => {
-            // We'll use the createHighlightVideo function directly
             try {
-                if (!isMounted) return;
+                if (!isMounted.current) return;
+
                 setIsLoading(true);
                 setLoadingStatus('Loading FFmpeg...');
                 setLoadingProgress(10);
 
-                // Dynamically import to avoid bundling issues
-                const { createHighlightVideo, loadFFmpeg } = await import('@/lib/utils/video-utils');
+                // Make sure we have a fresh FFmpeg instance
+                const { createHighlightVideo, releaseFFmpeg } = await import('@/lib/utils/video-utils');
 
-                // Make sure FFmpeg is loaded first
-                await loadFFmpeg();
-                if (!isMounted) return;
+                if (!isMounted.current) return;
                 setLoadingProgress(30);
-                console.log(`Segment ${index + 1}: FFmpeg loaded, starting processing`);
+                console.log(`Segment ${index + 1} (${segmentInfo.current}): Starting processing`);
 
-                // Add retry logic (maximum 2 attempts)
-                let attempts = 0;
-                const maxAttempts = 2;
-                let lastError = null;
+                try {
+                    setLoadingStatus('Processing segment...');
+                    setLoadingProgress(40);
 
-                while (attempts < maxAttempts) {
-                    try {
-                        attempts++;
-                        if (!isMounted) return;
-                        setLoadingStatus(`Processing segment ${attempts === 1 ? '' : '(retry)'}`);
-                        setLoadingProgress(40);
-                        console.log(`Segment ${index + 1}: Starting attempt ${attempts}`);
-
-                        // Create a video just for this segment
-                        const segmentBlob = await createHighlightVideo(
-                            originalVideo,
-                            [segment],
-                            'mp4',
-                            undefined,
-                            (step, progress, detail) => {
-                                // Use the progress information from createHighlightVideo
-                                if (isMounted) {
-                                    setLoadingStatus(detail || step);
-                                    // Scale progress from 40-100%
-                                    setLoadingProgress(40 + (progress * 0.6));
-                                }
+                    // Create a video just for this segment
+                    const segmentBlob = await createHighlightVideo(
+                        originalVideo,
+                        [segment],
+                        'mp4',
+                        undefined,
+                        (step, progress, detail) => {
+                            if (isMounted.current) {
+                                setLoadingStatus(detail || step);
+                                // Scale progress from 40-100%
+                                setLoadingProgress(40 + (progress * 0.6));
                             }
-                        );
-
-                        console.log(`Segment ${index + 1}: Successfully created, size: ${segmentBlob.size} bytes`);
-
-                        if (isMounted) {
-                            const url = URL.createObjectURL(segmentBlob);
-                            console.log(`Segment ${index + 1}: URL created: ${url}`);
-                            setSegmentUrl(url);
-                            setIsLoading(false);
-                            setLoadingProgress(100);
-
-                            // Force a UI update
-                            setTimeout(() => {
-                                if (videoRef.current) {
-                                    videoRef.current.src = url;
-                                    videoRef.current.load();
-                                }
-                            }, 0);
                         }
-                        return; // Success, exit the function
-                    } catch (err) {
-                        console.error(`Attempt ${attempts}/${maxAttempts} failed for segment ${index + 1}:`, err);
-                        lastError = err;
+                    );
 
-                        // Small delay before retry
-                        if (attempts < maxAttempts && isMounted) {
-                            setLoadingStatus(`Retry attempt in progress...`);
-                            await new Promise(resolve => setTimeout(resolve, 1000));
+                    console.log(`Segment ${index + 1} (${segmentInfo.current}): Created video blob, size: ${segmentBlob.size} bytes`);
+
+                    if (isMounted.current) {
+                        // Cleanup previous URL if it exists
+                        if (segmentUrl) {
+                            URL.revokeObjectURL(segmentUrl);
                         }
+
+                        // Create new URL for the video blob
+                        const url = URL.createObjectURL(segmentBlob);
+                        console.log(`Segment ${index + 1} (${segmentInfo.current}): URL created: ${url}`);
+
+                        setSegmentUrl(url);
+                        setIsLoading(false);
+                        setLoadingProgress(100);
+
+                        // Update the video element
+                        setTimeout(() => {
+                            if (videoRef.current && isMounted.current) {
+                                // Reset the video element first
+                                videoRef.current.pause();
+                                videoRef.current.removeAttribute('src');
+                                videoRef.current.load();
+
+                                // Set the new source
+                                videoRef.current.src = url;
+                                videoRef.current.load();
+                            }
+                        }, 0);
                     }
-                }
+                } catch (err) {
+                    console.error(`Error for segment ${index + 1} (${segmentInfo.current}):`, err);
 
-                // If we get here, all attempts failed
-                throw lastError;
+                    if (isMounted.current) {
+                        setError(`Failed to create segment: ${err instanceof Error ? err.message : String(err)}`);
+                        setIsLoading(false);
+                    }
+
+                    // Make sure FFmpeg resources are released on error
+                    try {
+                        await releaseFFmpeg();
+                    } catch (releaseErr) {
+                        console.warn('Error releasing FFmpeg resources:', releaseErr);
+                    }
+
+                    throw err; // Re-throw to trigger task retry
+                }
             } catch (err) {
-                console.error(`Error creating segment preview ${index + 1}:`, err);
-                if (isMounted) {
-                    setError(`Failed to create segment preview: ${err instanceof Error ? err.message : String(err)}`);
+                console.error(`Fatal error for segment ${index + 1} (${segmentInfo.current}):`, err);
+
+                if (isMounted.current) {
+                    setError(`Error: ${err instanceof Error ? err.message : String(err)}`);
                     setIsLoading(false);
                 }
-            } finally {
-                processingRef.current = false;
+
+                throw err; // Re-throw to trigger task retry
             }
         };
 
-        generateSegmentVideo();
+        // Only add task to queue if ready is true and we haven't started processing yet
+        if (ready && !processingStarted.current) {
+            processingStarted.current = true;
 
+            // Generate a unique task ID that includes segment information
+            const uniqueTaskId = `${taskId.current}-seg${index}-${Date.now()}`;
+            taskId.current = parseInt(uniqueTaskId);
+
+            // Add this task to the queue
+            const task: Task = {
+                id: taskId.current,
+                execute: generateSegmentVideo,
+                onComplete: () => {
+                    console.log(`Task for segment ${index + 1} completed successfully`);
+                },
+                onFailure: (error) => {
+                    if (isMounted.current) {
+                        setError(`Processing failed after retries: ${error instanceof Error ? error.message : String(error)}`);
+                        setIsLoading(false);
+                    }
+                },
+                // Give earlier segments higher priority
+                priority: index
+            };
+
+            console.log(`Adding segment ${index + 1} (${segmentInfo.current}) to queue, task ID: ${taskId.current}`);
+            taskQueue.push(task);
+
+            // Try to start processing the queue
+            processNextTask();
+        } else if (!ready) {
+            console.log(`Segment ${index + 1} waiting for ready signal before processing`);
+        }
+
+        // Cleanup function
         return () => {
-            isMounted = false;
-            // Cleanup object URL when component unmounts
+            // Mark component as unmounted
+            isMounted.current = false;
+
+            // Cleanup URL if it exists
             if (segmentUrl) {
                 URL.revokeObjectURL(segmentUrl);
             }
+
+            // Remove this task from the queue if it hasn't started yet
+            cancelTask(taskId.current);
         };
-    }, [segment, index, originalVideo]);
+    }, [segment, index, originalVideo, ready]);
 
     const formatTime = (seconds: number) => {
         const date = new Date(seconds * 1000);
@@ -158,11 +294,11 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        <div className="text-sm text-center">{loadingStatus}</div>
+                        <div className="text-sm text-center">{!ready ? 'Waiting for combined video to complete...' : loadingStatus}</div>
                         <div className="w-3/4 bg-gray-700 rounded-full h-2 mt-2">
                             <div
                                 className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${loadingProgress}%` }}
+                                style={{ width: `${!ready ? 5 : loadingProgress}%` }}
                             ></div>
                         </div>
                     </div>
@@ -178,6 +314,7 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
                         className="w-full h-full object-contain"
                         controls
                         controlsList="nodownload"
+                        key={`video-${index}-${segmentInfo.current}`}
                     />
                 )}
             </div>

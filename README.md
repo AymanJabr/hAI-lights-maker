@@ -104,3 +104,21 @@ MIT
 - [FFmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) for bringing video processing to the browser
 - [TensorFlow.js](https://www.tensorflow.org/js) and [MediaPipe](https://mediapipe.dev/) for the face detection models
 - [OpenAI](https://openai.com/) for their powerful API services
+
+## New Workflow for Segment Processing
+
+The application now follows a two-step process for creating video highlights:
+
+1. **Step 1: Generate Individual Segments**
+   - Upload your video and adjust settings
+   - The app will analyze the video and extract highlight segments
+   - Each segment is processed individually in sequence
+   - You can preview and download each segment separately
+
+2. **Step 2: (Optional) Combine Segments**
+   - After all segments are processed, you can combine them into a single video
+   - Click the "Combine Segments Into Video" button
+   - This process creates a new video with all segments joined together
+   - The combined video uses your selected format settings (YouTube, TikTok, etc.)
+
+This new approach separates resource-intensive tasks, preventing them from interfering with each other and providing a more reliable experience.
