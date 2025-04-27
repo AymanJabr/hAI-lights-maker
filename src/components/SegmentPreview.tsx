@@ -88,11 +88,6 @@ function cancelTask(id: number): boolean {
     return false;
 }
 
-// Check if the queue has tasks for a specific segment
-function hasTasksForSegment(segmentIndex: number): boolean {
-    return taskQueue.some(task => task.id.toString().includes(`-seg${segmentIndex}-`));
-}
-
 export default function SegmentPreview({ segment, index, originalVideo, onMaximize, ready = false }: SegmentPreviewProps) {
     const [isLoading, setIsLoading] = useState(true);
     const [loadingProgress, setLoadingProgress] = useState(0);

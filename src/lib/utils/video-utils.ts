@@ -335,11 +335,11 @@ export async function createHighlightVideo(
                     `Extracting segment (${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s)`);
 
                 try {
-                    // Extract the single segment directly to the output file
+                    // Extract the single segment directly to the output file with re-encoding for accuracy
                     let extractCommand = [
-                        '-i', inputFileName,
                         '-ss', segment.start.toString(),
-                        '-to', segment.end.toString()
+                        '-i', inputFileName,
+                        '-t', (segment.end - segment.start).toString()
                     ];
 
                     // Apply resize if target dimensions are provided
@@ -352,7 +352,13 @@ export async function createHighlightVideo(
                             '-c:a', 'aac'
                         ]);
                     } else {
-                        extractCommand = extractCommand.concat(['-c', 'copy']);
+                        // Use re-encoding even without resizing for accurate cuts
+                        extractCommand = extractCommand.concat([
+                            '-c:v', 'libx264',
+                            '-crf', '23',
+                            '-preset', 'medium',
+                            '-c:a', 'aac'
+                        ]);
                     }
 
                     extractCommand.push(outputFileName);
@@ -413,12 +419,15 @@ export async function createHighlightVideo(
                     `Extracting segment ${index + 1}/${totalSegments} (${segment.start.toFixed(1)}s - ${segment.end.toFixed(1)}s)`);
 
                 try {
-                    // Extract each segment
+                    // Extract each segment with re-encoding for accurate frame boundaries
                     await ffmpegInstance.exec([
-                        '-i', inputFileName,
                         '-ss', segment.start.toString(),
-                        '-to', segment.end.toString(),
-                        '-c', 'copy',
+                        '-i', inputFileName,
+                        '-t', (segment.end - segment.start).toString(),
+                        '-c:v', 'libx264', // Re-encode video
+                        '-preset', 'medium', // Balance between speed and quality
+                        '-crf', '23', // Good quality (lower is better)
+                        '-c:a', 'aac', // Re-encode audio
                         segmentFile
                     ]);
                     console.log(`Extracted segment ${index + 1}: ${segment.start}s - ${segment.end}s`);
@@ -457,7 +466,13 @@ export async function createHighlightVideo(
                     '-c:a', 'aac'
                 ]);
             } else {
-                command = command.concat(['-c', 'copy']);
+                // Re-encode with good quality settings to ensure consistency between segments
+                command = command.concat([
+                    '-c:v', 'libx264',
+                    '-crf', '23',
+                    '-preset', 'medium',
+                    '-c:a', 'aac'
+                ]);
             }
 
             command.push(finalOutputFileName);
