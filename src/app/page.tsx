@@ -10,8 +10,13 @@ import Header from '@/components/layout/Header';
 import ProcessingLog from '@/components/ProcessingLog';
 import SegmentsGallery from '@/components/SegmentsGallery';
 import { useOpenAI } from '@/hooks/useOpenAI';
-import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, ProgressState, VideoSegment, VideoMetadata } from '@/types';
-import { getVideoMetadata, extractFrames, createHighlightVideo, createPlatformSpecificVideos } from '@/lib/utils/video-utils';
+import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, ProgressState as BaseProgressState, VideoSegment, VideoMetadata } from '@/types';
+import { getVideoMetadata, extractFrames, createHighlightVideo, createPlatformSpecificVideos, concatenateSegments } from '@/lib/utils/video-utils';
+
+// Extended version that ensures 'processing' is included
+type ProgressState = BaseProgressState & {
+    status: 'idle' | 'uploading' | 'transcribing' | 'analyzing' | 'generating' | 'processing' | 'completed' | 'error';
+};
 
 export default function Home() {
     const [apiConfig, setApiConfig] = useState<ApiKeyConfigType | null>(null);
@@ -31,6 +36,7 @@ export default function Home() {
     const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
     const [transcript, setTranscript] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
+    const [segmentBlobs, setSegmentBlobs] = useState<Blob[]>([]);
 
     const { transcribeAudio, findHighlights, isLoading, error: openAIError } = useOpenAI({ apiKey: apiConfig?.apiKey });
 
@@ -238,91 +244,168 @@ export default function Home() {
         }
     };
 
-    // New function to combine segments into one video
+    // Modify the combineSegments function to use direct Blob concatenation
     const combineSegments = async () => {
-        if (!processedVideo?.segments || !videoFile) {
-            console.error('No segments or video file available for combining');
+        if (!processedVideo?.segments || processedVideo.segments.length === 0) {
+            console.error('No segments available for combining');
             return;
         }
 
         try {
-            // Update progress to indicate we're starting the combination process
+            // Update progress
             setProgress({
-                status: 'processing',
-                progress: 70,
-                message: 'Starting to combine segments...'
+                status: 'processing' as any,
+                progress: 10,
+                message: 'Preparing to combine segments...'
             });
 
-            console.log('--- Starting segment combination ---');
-            console.log(`Combining ${processedVideo.segments.length} segments into one video`);
+            console.log('--- Starting segment combination using FFmpeg ---');
+            console.log(`Combining ${processedVideo.segments.length} segments`);
 
-            // Generate the highlight video based on platform
-            let dimensions;
-            switch (highlightConfig.targetPlatform) {
-                case 'youtube':
-                    dimensions = { width: 1920, height: 1080 }; // 16:9
-                    break;
-                case 'tiktok':
-                    dimensions = { width: 1080, height: 1920 }; // 9:16
-                    break;
-                case 'instagram':
-                    dimensions = { width: 1080, height: 1080 }; // 1:1
-                    break;
+            // First, collect all segment URLs from the video elements
+            const segmentUrls: string[] = [];
+            const videoElements = document.querySelectorAll('video[id^="segment-preview-"]');
+
+            if (videoElements.length === 0) {
+                throw new Error('No segment videos found. Please ensure all segments are processed first.');
             }
 
-            const processingStart = performance.now();
-
-            try {
-                const highlightVideo = await createHighlightVideo(
-                    videoFile,
-                    processedVideo.segments,
-                    'mp4',
-                    dimensions,
-                    (step, progress, detail) => {
-                        console.log(`Processing: ${step} - ${detail}`);
-                        // Scale progress from 70-95%
-                        const scaledProgress = 70 + (progress * 0.25);
-                        setProgress({
-                            status: 'processing',
-                            progress: scaledProgress,
-                            message: detail || `Processing video (${step})...`
-                        });
-                    }
-                );
-
-                const processingTime = ((performance.now() - processingStart) / 1000).toFixed(2);
-                console.log(`Video processing completed in ${processingTime}s`);
-                console.log(`Output video size: ${(highlightVideo.size / (1024 * 1024)).toFixed(2)}MB`);
-
-                const highlightUrl = URL.createObjectURL(highlightVideo);
-                console.log(`Created URL: ${highlightUrl}`);
-
-                // Set highlight URLs
-                setHighlightUrls({ [highlightConfig.targetPlatform]: highlightUrl });
-
-                // Force a small delay to ensure state updates propagate
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                // Mark combination as completed
-                setProgress({
-                    status: 'completed',
-                    progress: 100,
-                    message: 'Combined video ready!'
-                });
-            } catch (error) {
-                console.error('Error creating combined video:', error);
-                setProgress({
-                    status: 'error',
-                    progress: 0,
-                    message: `Failed to combine segments: ${error instanceof Error ? error.message : String(error)}`
-                });
+            for (let i = 0; i < videoElements.length; i++) {
+                const video = videoElements[i] as HTMLVideoElement;
+                if (video && video.src) {
+                    segmentUrls.push(video.src);
+                    console.log(`Found segment URL ${i + 1}: ${video.src}`);
+                }
             }
-        } catch (err) {
-            console.error('Error combining segments:', err);
+
+            if (segmentUrls.length === 0) {
+                throw new Error('Could not find any processed segment videos.');
+            }
+
             setProgress({
-                status: 'error',
+                status: 'processing' as any,
+                progress: 20,
+                message: `Found ${segmentUrls.length} segments to combine`
+            });
+
+            // Import FFmpeg dynamically
+            const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+            const { fetchFile } = await import('@ffmpeg/util');
+
+            // Create a new FFmpeg instance for combining
+            const ffmpeg = new FFmpeg();
+            console.log('Loading FFmpeg for segment combination');
+
+            setProgress({
+                status: 'processing' as any,
+                progress: 30,
+                message: 'Loading FFmpeg...'
+            });
+
+            await ffmpeg.load();
+            console.log('FFmpeg loaded successfully');
+
+            // Download each segment and add to FFmpeg
+            for (let i = 0; i < segmentUrls.length; i++) {
+                setProgress({
+                    status: 'processing' as any,
+                    progress: 30 + ((i + 1) / segmentUrls.length * 40),
+                    message: `Processing segment ${i + 1}/${segmentUrls.length}...`
+                });
+
+                try {
+                    // Fetch the segment data
+                    const response = await fetch(segmentUrls[i]);
+                    const segmentData = await response.arrayBuffer();
+
+                    const segmentFileName = `segment-${i}.mp4`;
+                    console.log(`Writing segment ${i + 1} to FFmpeg (${segmentData.byteLength} bytes)`);
+
+                    // Write segment to FFmpeg filesystem
+                    await ffmpeg.writeFile(segmentFileName, new Uint8Array(segmentData));
+                } catch (error) {
+                    console.error(`Error processing segment ${i + 1}:`, error);
+                    throw new Error(`Failed to process segment ${i + 1}`);
+                }
+            }
+
+            // Create concat file content
+            let concatContent = '';
+            for (let i = 0; i < segmentUrls.length; i++) {
+                concatContent += `file segment-${i}.mp4\n`;
+            }
+
+            console.log('Creating concat file with content:', concatContent);
+            await ffmpeg.writeFile('concat.txt', new TextEncoder().encode(concatContent));
+
+            // Perform the concatenation
+            setProgress({
+                status: 'processing' as any,
+                progress: 75,
+                message: 'Joining segments without transcoding...'
+            });
+
+            // Use copy codec to avoid transcoding
+            console.log('Running FFmpeg concat command');
+            await ffmpeg.exec([
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', 'concat.txt',
+                '-c', 'copy',
+                'output.mp4'
+            ]);
+
+            console.log('Successfully concatenated segments');
+
+            // Read the output file
+            setProgress({
+                status: 'processing' as any,
+                progress: 90,
+                message: 'Creating final video file...'
+            });
+
+            const outputData = await ffmpeg.readFile('output.mp4');
+            if (!outputData) {
+                throw new Error('Failed to read combined output file');
+            }
+
+            // Create output blob
+            const combinedBlob = new Blob([outputData], { type: 'video/mp4' });
+            console.log(`Created combined video, size: ${combinedBlob.size} bytes`);
+
+            // Create URL and update UI
+            const combinedUrl = URL.createObjectURL(combinedBlob);
+            console.log(`Created URL for combined video: ${combinedUrl}`);
+
+            // Store for recovery
+            if (typeof window !== 'undefined') {
+                window._lastCreatedVideoBlob = combinedBlob;
+            }
+
+            // Update state with the combined video URL
+            setHighlightUrls({ combined: combinedUrl });
+
+            // Release FFmpeg resources
+            try {
+                await ffmpeg.terminate();
+                console.log('Released FFmpeg resources');
+            } catch (error) {
+                console.warn('Error releasing FFmpeg resources:', error);
+            }
+
+            // Complete the process
+            setProgress({
+                status: 'completed' as any,
+                progress: 100,
+                message: 'Combined video ready!'
+            });
+
+        } catch (error) {
+            console.error('Error combining segments:', error);
+            setProgress({
+                status: 'error' as any,
                 progress: 0,
-                message: err instanceof Error ? err.message : 'Failed to combine segments'
+                message: `Failed to combine segments: ${error instanceof Error ? error.message : String(error)}`
             });
         }
     };
@@ -355,7 +438,7 @@ export default function Home() {
                             </div>
                         </div>
                     </div>
-                ) : progress.status === 'processing' ? (
+                ) : (progress.status as string) === 'processing' ? (
                     <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center">
                         <svg className="animate-spin h-5 w-5 text-blue-600 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -371,10 +454,10 @@ export default function Home() {
                         </p>
                         <button
                             onClick={combineSegments}
-                            disabled={progress.status === 'processing'}
+                            disabled={(progress.status as string) === 'processing'}
                             className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
                         >
-                            {progress.status === 'processing' ? 'Processing...' : 'Combine Segments Into Video'}
+                            {(progress.status as string) === 'processing' ? 'Processing...' : 'Combine Segments Into Video'}
                         </button>
                     </div>
                 )}

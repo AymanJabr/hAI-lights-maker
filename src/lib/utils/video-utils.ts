@@ -616,4 +616,129 @@ export async function createPlatformSpecificVideos(
         console.error('Error in createPlatformSpecificVideos:', error);
         throw error;
     }
+}
+
+// Add a new function specifically for concatenating segments without transcoding
+export async function concatenateSegments(
+    segments: VideoSegment[],
+    outputFormat: 'mp4' | 'webm' = 'mp4',
+    onProgress?: (step: string, progress: number, detail?: string) => void
+): Promise<Blob> {
+    console.log('Starting simple segment concatenation without transcoding');
+    onProgress?.('concatenating', 0, 'Preparing to join segments');
+
+    const maxAttempts = 2;
+    let lastError: any = null;
+
+    // Record operation start time for tracking
+    lastOperationTime = Date.now();
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            // Always start with a fresh FFmpeg instance for concatenation
+            if (ffmpeg) {
+                console.log('Releasing any existing FFmpeg instance before concatenation');
+                await releaseFFmpeg();
+            }
+
+            // Load a fresh FFmpeg instance
+            const ffmpegInstance = await loadFFmpeg();
+            console.log('FFmpeg loaded successfully for concatenation');
+
+            // List available segment files
+            onProgress?.('concatenating', 10, 'Checking for segment files');
+
+            try {
+                // Verify FFmpeg instance is working
+                await ffmpegInstance.exec(['-version']);
+                console.log('FFmpeg instance verified for concatenation');
+            } catch (error) {
+                console.error('FFmpeg instance verification failed:', error);
+                await releaseFFmpeg();
+                throw new Error('FFmpeg instance invalid for concatenation');
+            }
+
+            // Create concat file
+            let concatContent = '';
+            for (let i = 0; i < segments.length; i++) {
+                // In concatenateSegments, we assume segment files are already created
+                // and named in a predictable format
+                const segmentFile = `segment-${i}.${outputFormat}`;
+                concatContent += `file ${segmentFile}\n`;
+
+                // Update progress
+                const progress = 10 + Math.floor((i / segments.length) * 30);
+                onProgress?.('concatenating', progress, `Preparing segment ${i + 1}/${segments.length}`);
+            }
+
+            console.log('Creating concat file with content:', concatContent);
+            onProgress?.('concatenating', 40, 'Creating file list for concatenation');
+            await ffmpegInstance.writeFile('concat.txt', new TextEncoder().encode(concatContent));
+
+            // Simple concatenation command without transcoding
+            const outputFileName = `combined-output.${outputFormat}`;
+            const command = [
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', 'concat.txt',
+                '-c', 'copy', // Just copy streams without transcoding
+                outputFileName
+            ];
+
+            console.log('Running simple concatenation command:', command.join(' '));
+            onProgress?.('concatenating', 50, 'Joining segments (without transcoding)');
+
+            try {
+                await ffmpegInstance.exec(command);
+                console.log('Successfully joined segments without transcoding');
+                onProgress?.('concatenating', 80, 'Join complete, preparing final file');
+            } catch (concatError) {
+                console.error('Error during simple concatenation:', concatError);
+                throw new Error(`Failed to join segments: ${concatError instanceof Error ? concatError.message : String(concatError)}`);
+            }
+
+            // Read output file
+            try {
+                const data = await ffmpegInstance.readFile(outputFileName);
+                if (!data) {
+                    throw new Error('Failed to read concatenated output file');
+                }
+
+                const mimeType = outputFormat === 'mp4' ? 'video/mp4' : 'video/webm';
+                const outputBlob = new Blob([data], { type: mimeType });
+                console.log(`Successfully created concatenated file, size: ${outputBlob.size} bytes`);
+
+                // Store for recovery
+                if (typeof window !== 'undefined') {
+                    window._lastCreatedVideoBlob = outputBlob;
+                }
+
+                // We'll skip cleanup to avoid issues, and just release the entire instance
+                console.log('Releasing FFmpeg after concatenation');
+                await releaseFFmpeg();
+
+                onProgress?.('finalizing', 100, 'Concatenation complete');
+                return outputBlob;
+            } catch (outputError) {
+                console.error('Error reading concatenated output:', outputError);
+                await releaseFFmpeg();
+                throw new Error(`Failed to read output: ${outputError instanceof Error ? outputError.message : String(outputError)}`);
+            }
+        } catch (error) {
+            console.error(`Error in concatenateSegments (Attempt ${attempt}/${maxAttempts}):`, error);
+            lastError = error;
+
+            // Release FFmpeg and try again
+            await releaseFFmpeg();
+
+            if (attempt < maxAttempts) {
+                console.log(`Retrying concatenation in 1 second... (Attempt ${attempt}/${maxAttempts})`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    }
+
+    // If we reach here, all attempts failed
+    console.error(`All ${maxAttempts} attempts failed in concatenateSegments`);
+    throw lastError || new Error('Failed to concatenate segments after multiple attempts');
 } 
