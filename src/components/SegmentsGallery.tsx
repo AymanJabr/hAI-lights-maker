@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { VideoSegment } from '@/types';
 import SegmentPreview from './SegmentPreview';
-import SegmentModal from './SegmentModal';
 
 interface SegmentsGalleryProps {
     segments: VideoSegment[];
@@ -13,12 +12,6 @@ interface SegmentsGalleryProps {
 let segmentsProcessingDelay = 1000; // Reduced to 1 second for better user experience
 
 export default function SegmentsGallery({ segments, originalVideo }: SegmentsGalleryProps) {
-    const [activeSegment, setActiveSegment] = useState<{
-        segment: VideoSegment;
-        index: number;
-        url: string;
-    } | null>(null);
-
     const [processSegments, setProcessSegments] = useState(false);
 
     // Delay segment processing to avoid conflicts with main video creation
@@ -31,14 +24,6 @@ export default function SegmentsGallery({ segments, originalVideo }: SegmentsGal
 
         return () => clearTimeout(timer);
     }, []);
-
-    const handleMaximize = (segment: VideoSegment, index: number, url: string) => {
-        setActiveSegment({ segment, index, url });
-    };
-
-    const handleCloseModal = () => {
-        setActiveSegment(null);
-    };
 
     return (
         <div className="mt-6">
@@ -58,28 +43,10 @@ export default function SegmentsGallery({ segments, originalVideo }: SegmentsGal
                         segment={segment}
                         index={index}
                         originalVideo={originalVideo}
-                        onMaximize={(segment, url) => handleMaximize(segment, index, url)}
                         ready={processSegments}
                     />
                 ))}
             </div>
-
-            {activeSegment && (
-                <SegmentModal
-                    segment={activeSegment.segment}
-                    index={activeSegment.index}
-                    videoUrl={activeSegment.url}
-                    onClose={handleCloseModal}
-                    onDownload={() => {
-                        const a = document.createElement('a');
-                        a.href = activeSegment.url;
-                        a.download = `segment-${activeSegment.index + 1}.mp4`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                    }}
-                />
-            )}
         </div>
     );
 } 

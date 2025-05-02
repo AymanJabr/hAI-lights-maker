@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { VideoSegment } from '@/types';
+import VideoPlayer from '@/components/VideoPlayer';
 
 interface SegmentPreviewProps {
     segment: VideoSegment;
     index: number;
     originalVideo: File;
-    onMaximize?: (segment: VideoSegment, url: string) => void;
     ready?: boolean; // New prop to control when processing starts
 }
 
@@ -88,7 +88,7 @@ function cancelTask(id: number): boolean {
     return false;
 }
 
-export default function SegmentPreview({ segment, index, originalVideo, onMaximize, ready = false }: SegmentPreviewProps) {
+export default function SegmentPreview({ segment, index, originalVideo, ready = false }: SegmentPreviewProps) {
     const [isLoading, setIsLoading] = useState(true);
     const [loadingProgress, setLoadingProgress] = useState(0);
     const [loadingStatus, setLoadingStatus] = useState(ready ? 'Waiting in queue...' : 'Queued...');
@@ -302,14 +302,11 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
                         {error}
                     </div>
                 ) : (
-                    <video
-                        ref={videoRef}
-                        id={`segment-preview-${index}`}
-                        src={segmentUrl || undefined}
-                        className="w-full h-full object-contain"
-                        controls
-                        controlsList="nodownload"
+                    <VideoPlayer
+                        src={segmentUrl || ''}
+                        autoPlay={false}
                         key={`video-${index}-${segmentInfo.current}`}
+                        id={`segment-preview-${index}`}
                     />
                 )}
             </div>
@@ -322,16 +319,9 @@ export default function SegmentPreview({ segment, index, originalVideo, onMaximi
 
             <div className="p-3 flex space-x-2 border-t border-gray-200">
                 <button
-                    onClick={() => segmentUrl && onMaximize?.(segment, segmentUrl)}
-                    disabled={isLoading || !!error || !segmentUrl}
-                    className="flex-1 py-2 px-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 transition"
-                >
-                    Maximize
-                </button>
-                <button
                     onClick={handleDownload}
                     disabled={isLoading || !!error || !segmentUrl}
-                    className="flex-1 py-2 px-3 bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 transition"
+                    className="w-full py-2 px-3 bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 transition"
                 >
                     Download
                 </button>
