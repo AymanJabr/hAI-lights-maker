@@ -1,6 +1,7 @@
 import { ProcessedVideo, ProgressState } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 import SegmentsGallery from '@/components/SegmentsGallery';
+import { useSegmentsCompletionStatus } from '@/hooks/useSegmentsCompletionStatus';
 
 interface ResultsSectionProps {
     processedVideo: ProcessedVideo;
@@ -21,6 +22,9 @@ export default function ResultsSection({
 }: ResultsSectionProps) {
     // Use string comparison for status checking
     const isProcessing = progress.status === 'processing';
+
+    // Track if all segments are ready
+    const areSegmentsReady = useSegmentsCompletionStatus();
 
     return (
         <div className="w-full">
@@ -110,10 +114,10 @@ export default function ResultsSection({
                         </p>
                         <button
                             onClick={onCombineSegments}
-                            disabled={isProcessing}
+                            disabled={isProcessing || !areSegmentsReady}
                             className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
                         >
-                            {isProcessing ? 'Processing...' : 'Combine Segments Into Video'}
+                            {isProcessing ? 'Processing...' : !areSegmentsReady ? 'Waiting for segments to process...' : 'Combine Segments Into Video'}
                         </button>
                     </div>
                 )}

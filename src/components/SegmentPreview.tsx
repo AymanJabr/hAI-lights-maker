@@ -2,6 +2,47 @@ import { useState, useRef, useEffect } from 'react';
 import { VideoSegment } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 
+// Declare global window properties
+declare global {
+    interface Window {
+        _totalSegmentsCount?: number;
+        _lastCreatedVideoBlob?: Blob;
+    }
+}
+
+// Count of total segments and completed segments 
+let totalSegments = 0;
+let completedSegments = 0;
+let segmentsAllCompleted = false;
+
+// Function to check and update completion status
+function updateSegmentCompletionStatus(isComplete: boolean) {
+    if (isComplete) {
+        completedSegments++;
+    }
+
+    segmentsAllCompleted = completedSegments === totalSegments && totalSegments > 0;
+
+    // Dispatch a custom event when all segments are completed
+    if (segmentsAllCompleted && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('segmentsProcessingComplete', {
+            detail: { completedSegments, totalSegments }
+        }));
+    }
+}
+
+// Export a function to check if all segments are ready
+export function areAllSegmentsReady(): boolean {
+    return segmentsAllCompleted;
+}
+
+// Reset the counts when needed
+export function resetSegmentCounts() {
+    completedSegments = 0;
+    totalSegments = 0;
+    segmentsAllCompleted = false;
+}
+
 interface SegmentPreviewProps {
     segment: VideoSegment;
     index: number;
@@ -111,6 +152,11 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
         // Set isMounted ref
         isMounted.current = true;
 
+        // Update total segments count from window if available
+        if (typeof window !== 'undefined' && window._totalSegmentsCount) {
+            totalSegments = window._totalSegmentsCount;
+        }
+
         // Function to generate a video for this segment
         const generateSegmentVideo = async () => {
             try {
@@ -219,6 +265,7 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
                 execute: generateSegmentVideo,
                 onComplete: () => {
                     console.log(`Task for segment ${index + 1} completed successfully`);
+                    updateSegmentCompletionStatus(true);
                 },
                 onFailure: (error) => {
                     if (isMounted.current) {

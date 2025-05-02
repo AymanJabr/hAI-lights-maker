@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react';
 import { VideoSegment } from '@/types';
-import SegmentPreview from './SegmentPreview';
+import SegmentPreview, { resetSegmentCounts } from './SegmentPreview';
 
 interface SegmentsGalleryProps {
     segments: VideoSegment[];
     originalVideo: File;
+}
+
+// Declare global window properties if not already declared
+declare global {
+    interface Window {
+        _totalSegmentsCount?: number;
+    }
 }
 
 // Create a delay between when segments are displayed and when they start processing
@@ -13,6 +20,22 @@ let segmentsProcessingDelay = 1000; // Reduced to 1 second for better user exper
 
 export default function SegmentsGallery({ segments, originalVideo }: SegmentsGalleryProps) {
     const [processSegments, setProcessSegments] = useState(false);
+
+    // Update the total segments count
+    useEffect(() => {
+        // Reset counters when mounting a new gallery
+        resetSegmentCounts();
+
+        // Set the new total count
+        if (typeof window !== 'undefined') {
+            window._totalSegmentsCount = segments.length;
+        }
+
+        return () => {
+            // Reset on unmount
+            resetSegmentCounts();
+        };
+    }, [segments.length]);
 
     // Delay segment processing to avoid conflicts with main video creation
     useEffect(() => {
