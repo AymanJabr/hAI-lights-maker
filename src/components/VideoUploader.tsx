@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ProgressState } from '@/types';
+import { getMaxVideoSize, formatFileSize } from '@/lib/utils/device-utils';
+import VideoSizeWarningModal from './VideoSizeWarningModal';
 
 interface VideoUploaderProps {
     onVideoSelected: (file: File) => void;
@@ -9,7 +11,18 @@ interface VideoUploaderProps {
 
 export default function VideoUploader({ onVideoSelected, isProcessing, progress }: VideoUploaderProps) {
     const [dragActive, setDragActive] = useState(false);
+    const [showWarningModal, setShowWarningModal] = useState(false);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [maxVideoSize, setMaxVideoSize] = useState<number>(100 * 1024 * 1024); // Default 100MB
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Set max video size based on device capabilities when component mounts
+    useEffect(() => {
+        // Only run on client side
+        if (typeof window !== 'undefined') {
+            setMaxVideoSize(getMaxVideoSize());
+        }
+    }, []);
 
     const handleDrag = (e: React.DragEvent) => {
         e.preventDefault();
@@ -21,6 +34,23 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
         }
     };
 
+    const processVideoFile = (file: File) => {
+        if (isVideoFile(file)) {
+            setSelectedFile(file);
+
+            // Check if file size exceeds recommended maximum
+            if (file.size > maxVideoSize) {
+                console.log(`Large file detected: ${formatFileSize(file.size)}, recommended max: ${formatFileSize(maxVideoSize)}`);
+                setShowWarningModal(true);
+            } else {
+                // Proceed with normal upload
+                onVideoSelected(file);
+            }
+        } else {
+            alert('Please upload a valid video file.');
+        }
+    };
+
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
@@ -28,27 +58,35 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
 
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
             const file = e.dataTransfer.files[0];
-            if (isVideoFile(file)) {
-                onVideoSelected(file);
-            } else {
-                alert('Please upload a valid video file.');
-            }
+            processVideoFile(file);
         }
     };
 
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
-            if (isVideoFile(file)) {
-                onVideoSelected(file);
-            } else {
-                alert('Please upload a valid video file.');
-            }
+            processVideoFile(file);
         }
     };
 
     const isVideoFile = (file: File) => {
         return file.type.startsWith('video/');
+    };
+
+    const handleWarningConfirm = () => {
+        setShowWarningModal(false);
+        if (selectedFile) {
+            onVideoSelected(selectedFile);
+        }
+    };
+
+    const handleWarningClose = () => {
+        setShowWarningModal(false);
+        setSelectedFile(null);
+        // Reset file input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
 
     return (
@@ -92,7 +130,7 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
                         {isProcessing ? 'Processing video...' : 'Drag & drop your video here or click to browse'}
                     </p>
                     <p className="mt-2 text-sm text-gray-500">
-                        Supports MP4, WebM, MOV, and AVI formats up to 1GB
+                        Supports MP4, WebM, MOV, and AVI formats (recommended max: {formatFileSize(maxVideoSize)})
                     </p>
                 </div>
             </div>
@@ -118,6 +156,17 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
                     <p className="text-sm text-red-600">{progress.error}</p>
                 </div>
+            )}
+
+            {/* Warning Modal */}
+            {selectedFile && (
+                <VideoSizeWarningModal
+                    isOpen={showWarningModal}
+                    onClose={handleWarningClose}
+                    onConfirm={handleWarningConfirm}
+                    fileSize={selectedFile.size}
+                    maxRecommendedSize={maxVideoSize}
+                />
             )}
         </div>
     );
