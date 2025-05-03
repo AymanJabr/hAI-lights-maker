@@ -79,7 +79,7 @@ export function useVideoProcessor({
 
             // Find highlights based on transcript
             console.log('Step 3: Analyzing transcript for highlights');
-            updateProgress('analyzing', 60, 'Finding highlights...');
+            updateProgress('analyzing', 60, 'Finding suggested segments...');
 
             const highlightsStart = performance.now();
             const segments = await findHighlights(
@@ -90,12 +90,12 @@ export function useVideoProcessor({
             const highlightsTime = ((performance.now() - highlightsStart) / 1000).toFixed(2);
 
             console.log(`Highlight analysis completed in ${highlightsTime}s`);
-            console.log(`Found ${segments.length} segments for highlights`);
+            console.log(`Found ${segments.length} suggested segments`);
             segments.forEach((segment, i) => {
                 console.log(`Segment ${i + 1}: ${segment.start.toFixed(2)}s - ${segment.end.toFixed(2)}s (${(segment.end - segment.start).toFixed(2)}s) - ${segment.description || 'No description'}`);
             });
 
-            // Create the final processed video
+            // Create the processed video with suggested segments
             const processedVideo: ProcessedVideo = {
                 ...initialProcessedVideo,
                 segments,
@@ -103,10 +103,10 @@ export function useVideoProcessor({
             };
 
             // Mark process as completed after finding segments
-            updateProgress('completed', 100, 'Segments identified and ready for viewing');
-            console.log('--- Segment analysis complete ---');
+            updateProgress('completed', 100, 'Suggested segments ready for review');
+            console.log('--- Segment suggestion complete ---');
 
-            // Notify parent component of completion
+            // Notify parent component of completion with suggested segments
             onProcessingComplete(processedVideo, transcriptionResult.text);
 
         } catch (err) {

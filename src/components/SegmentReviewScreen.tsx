@@ -1,0 +1,231 @@
+import { useState } from 'react';
+import { VideoSegment, VideoMetadata, ProgressState } from '@/types';
+import VideoPlayer from '@/components/VideoPlayer';
+
+interface SegmentReviewScreenProps {
+    videoUrl: string;
+    transcript: string;
+    suggestedSegments: VideoSegment[];
+    videoMetadata: VideoMetadata | null;
+    onApproveSegments: (segments: VideoSegment[]) => void;
+    onBack: () => void;
+}
+
+export default function SegmentReviewScreen({
+    videoUrl,
+    transcript,
+    suggestedSegments,
+    videoMetadata,
+    onApproveSegments,
+    onBack
+}: SegmentReviewScreenProps) {
+    // Create a mutable copy of segments for editing
+    const [segments, setSegments] = useState<VideoSegment[]>(
+        suggestedSegments.map(segment => ({ ...segment }))
+    );
+    const [currentSegment, setCurrentSegment] = useState<number | null>(null);
+
+    // Function to update a segment
+    const updateSegment = (index: number, updates: Partial<VideoSegment>) => {
+        setSegments(prev => {
+            const newSegments = [...prev];
+            newSegments[index] = { ...newSegments[index], ...updates };
+            return newSegments;
+        });
+    };
+
+    // Function to add a new segment
+    const addSegment = () => {
+        // Default to adding a segment at the start if no video metadata
+        const videoDuration = videoMetadata?.duration || 60;
+        const newSegment: VideoSegment = {
+            start: 0,
+            end: Math.min(10, videoDuration),
+            description: "New segment"
+        };
+
+        setSegments(prev => [...prev, newSegment]);
+        // Select the newly added segment
+        setCurrentSegment(segments.length);
+    };
+
+    // Function to remove a segment
+    const removeSegment = (index: number) => {
+        setSegments(prev => prev.filter((_, i) => i !== index));
+        if (currentSegment === index) {
+            setCurrentSegment(null);
+        } else if (currentSegment !== null && currentSegment > index) {
+            setCurrentSegment(currentSegment - 1);
+        }
+    };
+
+    // Function to handle segment selection
+    const handleSegmentSelect = (index: number) => {
+        setCurrentSegment(index);
+    };
+
+    // Function to handle time input changes
+    const handleTimeChange = (index: number, field: 'start' | 'end', value: string) => {
+        const timeInSeconds = parseFloat(value);
+        if (!isNaN(timeInSeconds)) {
+            updateSegment(index, { [field]: timeInSeconds });
+        }
+    };
+
+    // Function to format time as mm:ss
+    const formatTime = (timeInSeconds: number) => {
+        const minutes = Math.floor(timeInSeconds / 60);
+        const seconds = Math.floor(timeInSeconds % 60);
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    // Check if segments overlap or have other issues
+    const validateSegments = () => {
+        // Sort segments by start time
+        const sortedSegments = [...segments].sort((a, b) => a.start - b.start);
+
+        // Check for overlaps and other issues
+        for (let i = 0; i < sortedSegments.length - 1; i++) {
+            if (sortedSegments[i].end > sortedSegments[i + 1].start) {
+                return false;
+            }
+
+            if (sortedSegments[i].start >= sortedSegments[i].end) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const isValid = validateSegments();
+
+    return (
+        <div className="w-full">
+            <h2 className="text-2xl font-bold mb-6">Review Suggested Segments</h2>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <div>
+                    <h3 className="text-lg font-medium mb-2">Original Video</h3>
+                    <div className="mb-4">
+                        <VideoPlayer src={videoUrl} />
+                    </div>
+                </div>
+
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-medium">Suggested Segments ({segments.length})</h3>
+                        <button
+                            onClick={addSegment}
+                            className="py-1 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
+                        >
+                            Add Segment
+                        </button>
+                    </div>
+
+                    <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+                        {segments.map((segment, index) => (
+                            <div
+                                key={index}
+                                className={`p-3 border-b border-gray-200 cursor-pointer ${currentSegment === index ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                                onClick={() => handleSegmentSelect(index)}
+                            >
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <span className="font-medium">Segment {index + 1}</span>
+                                        <p className="text-sm text-gray-600 mt-1">
+                                            {formatTime(segment.start)} - {formatTime(segment.end)} ({(segment.end - segment.start).toFixed(1)}s)
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            removeSegment(index);
+                                        }}
+                                        className="text-red-500 hover:text-red-700"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <p className="text-sm text-gray-600 mt-1 truncate">{segment.description}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {currentSegment !== null && (
+                <div className="mb-8 p-4 border border-gray-200 rounded-lg">
+                    <h3 className="text-lg font-medium mb-4">Edit Segment {currentSegment + 1}</h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Start Time (seconds)</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max={videoMetadata?.duration || 3600}
+                                    value={segments[currentSegment].start}
+                                    onChange={(e) => handleTimeChange(currentSegment, 'start', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">End Time (seconds)</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max={videoMetadata?.duration || 3600}
+                                    value={segments[currentSegment].end}
+                                    onChange={(e) => handleTimeChange(currentSegment, 'end', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                <textarea
+                                    value={segments[currentSegment].description}
+                                    onChange={(e) => updateSegment(currentSegment, { description: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="mb-8 p-4 border border-gray-200 rounded-lg">
+                <h3 className="text-lg font-medium mb-4">Transcript</h3>
+                <div className="max-h-60 overflow-y-auto bg-gray-50 p-4 rounded-md text-sm whitespace-pre-line">
+                    {transcript}
+                </div>
+            </div>
+
+            <div className="flex justify-between">
+                <button
+                    onClick={onBack}
+                    className="py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                    Back
+                </button>
+
+                <button
+                    onClick={() => onApproveSegments(segments)}
+                    disabled={!isValid || segments.length === 0}
+                    className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+                >
+                    Create Videos from {segments.length} Segments
+                </button>
+            </div>
+        </div>
+    );
+} 

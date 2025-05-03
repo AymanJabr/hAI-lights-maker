@@ -7,7 +7,8 @@ import Header from '@/components/layout/Header';
 import VideoUploadSection from '@/components/VideoUploadSection';
 import ConfigurationSection from '@/components/ConfigurationSection';
 import ResultsSection from '@/components/ResultsSection';
-import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, VideoMetadata, ProgressState } from '@/types';
+import SegmentReviewScreen from '@/components/SegmentReviewScreen';
+import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, VideoMetadata, ProgressState, VideoSegment } from '@/types';
 import { useVideoProcessor } from '@/components/VideoProcessor';
 
 export default function Home() {
@@ -25,9 +26,12 @@ export default function Home() {
         progress: 0,
     });
     const [processedVideo, setProcessedVideo] = useState<ProcessedVideo | null>(null);
+    const [suggestedSegments, setSuggestedSegments] = useState<VideoSegment[]>([]);
+    const [approvedSegments, setApprovedSegments] = useState<VideoSegment[]>([]);
     const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
     const [transcript, setTranscript] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
+    const [currentStep, setCurrentStep] = useState<'upload' | 'configure' | 'review' | 'results'>('upload');
 
     // Always call useVideoProcessor, pass apiKey only if it exists
     const videoProcessor = useVideoProcessor({
@@ -37,8 +41,9 @@ export default function Home() {
         highlightConfig,
         onProgress: setProgress,
         onProcessingComplete: (video, transcriptText) => {
-            setProcessedVideo(video);
+            setSuggestedSegments(video.segments);
             setTranscript(transcriptText);
+            setCurrentStep('review');
         },
         onError: setError
     });
@@ -51,6 +56,7 @@ export default function Home() {
         setVideoFile(file);
         setVideoUrl(url);
         setVideoMetadata(metadata);
+        setCurrentStep('configure');
     };
 
     const handleConfigChange = (config: HighlightConfigType) => {
@@ -60,6 +66,24 @@ export default function Home() {
     const handleProcessVideo = async () => {
         if (!videoProcessor || !apiConfig?.apiKey) return;
         await videoProcessor.processVideo();
+    };
+
+    const handleApproveSegments = (segments: VideoSegment[]) => {
+        setApprovedSegments(segments);
+
+        // Create the processed video object using the approved segments
+        if (videoFile) {
+            const processedVideoWithApprovedSegments: ProcessedVideo = {
+                id: processedVideo?.id || crypto.randomUUID(),
+                originalFile: videoFile,
+                segments: segments,
+                highlightConfig,
+                transcript
+            };
+
+            setProcessedVideo(processedVideoWithApprovedSegments);
+            setCurrentStep('results');
+        }
     };
 
     const handleCombineSegments = async () => {
@@ -79,13 +103,20 @@ export default function Home() {
         setVideoFile(null);
         setVideoUrl('');
         setProcessedVideo(null);
+        setSuggestedSegments([]);
+        setApprovedSegments([]);
         setHighlightUrls({});
         setProgress({ status: 'idle', progress: 0 });
+        setCurrentStep('upload');
+    };
+
+    const handleBackToConfig = () => {
+        setCurrentStep('configure');
     };
 
     const renderMainContent = () => {
         // Step 1: Upload video
-        if (!videoFile) {
+        if (currentStep === 'upload') {
             return (
                 <VideoUploadSection
                     onVideoSelected={handleVideoSelected}
@@ -95,7 +126,7 @@ export default function Home() {
         }
 
         // Step 2: Configure settings
-        if (videoFile && videoUrl && !processedVideo?.segments?.length) {
+        if (currentStep === 'configure') {
             return (
                 <ConfigurationSection
                     videoUrl={videoUrl}
@@ -110,8 +141,22 @@ export default function Home() {
             );
         }
 
-        // Step 3: View results
-        if (processedVideo?.segments?.length) {
+        // Step 3: Review segments
+        if (currentStep === 'review') {
+            return (
+                <SegmentReviewScreen
+                    videoUrl={videoUrl}
+                    transcript={transcript}
+                    suggestedSegments={suggestedSegments}
+                    videoMetadata={videoMetadata}
+                    onApproveSegments={handleApproveSegments}
+                    onBack={handleBackToConfig}
+                />
+            );
+        }
+
+        // Step 4: View results
+        if (currentStep === 'results' && processedVideo?.segments?.length) {
             return (
                 <ResultsSection
                     processedVideo={processedVideo}

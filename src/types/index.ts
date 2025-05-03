@@ -3,6 +3,7 @@ export interface VideoSegment {
     end: number;
     description?: string;
     confidence?: number;
+    status?: 'suggested' | 'approved' | 'rejected';
 }
 
 export interface HighlightConfig {
@@ -20,6 +21,7 @@ export interface ProcessedVideo {
     highlightConfig: HighlightConfig;
     outputUrl?: string;
     outputUrls?: Record<string, string>;
+    status?: 'suggested' | 'approved';
 }
 
 export interface VideoMetadata {
@@ -40,7 +42,7 @@ export interface TranscriptionResult {
     }[];
 }
 
-export type ProgressStatus = 'idle' | 'uploading' | 'transcribing' | 'analyzing' | 'processing' | 'generating' | 'completed' | 'error';
+export type ProgressStatus = 'idle' | 'uploading' | 'transcribing' | 'analyzing' | 'reviewing' | 'processing' | 'generating' | 'completed' | 'error';
 
 export interface ProgressState {
     status: ProgressStatus;
