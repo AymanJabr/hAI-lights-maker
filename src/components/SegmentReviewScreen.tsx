@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { VideoSegment, VideoMetadata, ProgressState } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 
@@ -25,6 +25,7 @@ export default function SegmentReviewScreen({
     );
     const [currentSegment, setCurrentSegment] = useState<number | null>(null);
     const [validationError, setValidationError] = useState<string | null>(null);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
 
     // Format transcript for better readability
     const formattedTranscript = useMemo(() => {
@@ -87,6 +88,39 @@ export default function SegmentReviewScreen({
             return newSegments;
         });
     };
+
+    // Effect to handle video seeking when a segment is selected
+    useEffect(() => {
+        if (currentSegment !== null && videoRef.current && segments[currentSegment]) {
+            // Set the current time to the segment start
+            videoRef.current.currentTime = segments[currentSegment].start;
+            // Play the video
+            videoRef.current.play().catch(e => console.error("Error playing video:", e));
+        }
+    }, [currentSegment, segments]);
+
+    // Effect to monitor video playback and pause at segment end
+    useEffect(() => {
+        const videoElement = videoRef.current;
+        if (!videoElement) return;
+
+        const handleTimeUpdate = () => {
+            if (currentSegment !== null && segments[currentSegment]) {
+                const { end } = segments[currentSegment];
+                if (videoElement.currentTime >= end) {
+                    videoElement.pause();
+                    // Ensure we stop exactly at the end point
+                    videoElement.currentTime = end;
+                }
+            }
+        };
+
+        videoElement.addEventListener('timeupdate', handleTimeUpdate);
+
+        return () => {
+            videoElement.removeEventListener('timeupdate', handleTimeUpdate);
+        };
+    }, [currentSegment, segments]);
 
     // Function to add a new segment
     const addSegment = () => {
@@ -230,6 +264,15 @@ export default function SegmentReviewScreen({
         return true;
     };
 
+    // Play the current segment from start to end
+    const playCurrentSegment = () => {
+        if (currentSegment === null || !videoRef.current) return;
+
+        const segment = segments[currentSegment];
+        videoRef.current.currentTime = segment.start;
+        videoRef.current.play().catch(e => console.error("Error playing video:", e));
+    };
+
     // Run validation whenever segments change
     useMemo(() => {
         validateSegments();
@@ -245,8 +288,27 @@ export default function SegmentReviewScreen({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                 <div>
                     <h3 className="text-lg font-medium mb-2">Original Video</h3>
-                    <div className="mb-4">
-                        <VideoPlayer src={videoUrl} />
+                    <div className="mb-4 relative">
+                        <VideoPlayer
+                            src={videoUrl}
+                            ref={videoRef}
+                        />
+                        {currentSegment !== null && (
+                            <div className="mt-2 flex justify-between items-center">
+                                <div className="text-sm text-gray-600">
+                                    Selected: <span className="font-medium">{formatTime(segments[currentSegment].start)} - {formatTime(segments[currentSegment].end)}</span>
+                                </div>
+                                <button
+                                    onClick={playCurrentSegment}
+                                    className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 flex items-center"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                                    </svg>
+                                    Play Segment
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -265,7 +327,7 @@ export default function SegmentReviewScreen({
                         {segments.map((segment, index) => (
                             <div
                                 key={index}
-                                className={`p-3 border-b border-gray-200 cursor-pointer ${currentSegment === index ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                                className={`p-3 border-b border-gray-200 cursor-pointer ${currentSegment === index ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50'}`}
                                 onClick={() => handleSegmentSelect(index)}
                             >
                                 <div className="flex justify-between items-center">

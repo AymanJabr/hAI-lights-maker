@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, forwardRef, ForwardedRef } from 'react';
 import { VideoSegment } from '@/types';
 
 interface VideoPlayerProps {
@@ -9,8 +9,11 @@ interface VideoPlayerProps {
     id?: string;
 }
 
-export default function VideoPlayer({ src, segments = [], onSegmentClick, autoPlay = false, id }: VideoPlayerProps) {
-    const videoRef = useRef<HTMLVideoElement>(null);
+const VideoPlayer = forwardRef(function VideoPlayer(
+    { src, segments = [], onSegmentClick, autoPlay = false, id }: VideoPlayerProps,
+    ref: ForwardedRef<HTMLVideoElement>
+) {
+    const localVideoRef = useRef<HTMLVideoElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const progressBarRef = useRef<HTMLDivElement>(null);
     const [currentTime, setCurrentTime] = useState(0);
@@ -22,6 +25,9 @@ export default function VideoPlayer({ src, segments = [], onSegmentClick, autoPl
     const [isMuted, setIsMuted] = useState(false);
     const [isVolumeControlVisible, setIsVolumeControlVisible] = useState(false);
     const volumeControlRef = useRef<HTMLDivElement>(null);
+
+    // Use either the forwarded ref or the local ref
+    const videoRef = (ref as React.RefObject<HTMLVideoElement>) || localVideoRef;
 
     useEffect(() => {
         const video = videoRef.current;
@@ -61,7 +67,7 @@ export default function VideoPlayer({ src, segments = [], onSegmentClick, autoPl
             video.removeEventListener('pause', handlePause);
             video.removeEventListener('volumechange', handleVolumeChange);
         };
-    }, []);
+    }, [videoRef]);
 
     useEffect(() => {
         const handleFullscreenChange = () => {
@@ -202,7 +208,7 @@ export default function VideoPlayer({ src, segments = [], onSegmentClick, autoPl
                 onMouseLeave={() => setIsControlsVisible(false)}
             >
                 <video
-                    ref={videoRef}
+                    ref={ref as React.RefObject<HTMLVideoElement> || localVideoRef}
                     src={src}
                     className="w-full h-full object-cover"
                     controls={false}
@@ -357,8 +363,8 @@ export default function VideoPlayer({ src, segments = [], onSegmentClick, autoPl
                 </div>
             </div>
 
-            {/* Segments list */}
-            {segments.length > 0 && (
+            {/* Segments list - hidden in this context */}
+            {segments.length > 0 && false && (
                 <div className="mt-4 space-y-2">
                     <h3 className="text-lg font-medium text-gray-800">Highlight Segments</h3>
                     <div className="space-y-2">
@@ -387,4 +393,6 @@ export default function VideoPlayer({ src, segments = [], onSegmentClick, autoPl
             )}
         </div>
     );
-} 
+});
+
+export default VideoPlayer; 
