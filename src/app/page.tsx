@@ -150,7 +150,7 @@ export default function Home() {
                     suggestedSegments={suggestedSegments}
                     videoMetadata={videoMetadata}
                     onApproveSegments={handleApproveSegments}
-                    onBack={handleBackToConfig}
+                    onStartOver={handleStartOver}
                 />
             );
         }

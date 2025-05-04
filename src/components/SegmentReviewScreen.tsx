@@ -8,7 +8,7 @@ interface SegmentReviewScreenProps {
     suggestedSegments: VideoSegment[];
     videoMetadata: VideoMetadata | null;
     onApproveSegments: (segments: VideoSegment[]) => void;
-    onBack: () => void;
+    onStartOver: () => void;
 }
 
 export default function SegmentReviewScreen({
@@ -17,7 +17,7 @@ export default function SegmentReviewScreen({
     suggestedSegments,
     videoMetadata,
     onApproveSegments,
-    onBack
+    onStartOver
 }: SegmentReviewScreenProps) {
     // Create a mutable copy of segments for editing
     const [segments, setSegments] = useState<VideoSegment[]>(
@@ -413,10 +413,13 @@ export default function SegmentReviewScreen({
 
                 <div className="flex justify-between">
                     <button
-                        onClick={onBack}
-                        className="py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={onStartOver}
+                        className="py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 flex items-center"
                     >
-                        Back
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Remove Video
                     </button>
 
                     <button
