@@ -29,7 +29,21 @@ export default function SegmentReviewScreen({
     const updateSegment = (index: number, updates: Partial<VideoSegment>) => {
         setSegments(prev => {
             const newSegments = [...prev];
-            newSegments[index] = { ...newSegments[index], ...updates };
+
+            // Create the updated segment
+            const updatedSegment = { ...newSegments[index], ...updates };
+
+            // If updating start time, ensure end time is at least 1 second later
+            if ('start' in updates && updatedSegment.end <= updatedSegment.start) {
+                updatedSegment.end = updatedSegment.start + 1;
+            }
+
+            // If updating end time, ensure it's at least 1 second after start time
+            if ('end' in updates && updatedSegment.end <= updatedSegment.start) {
+                updatedSegment.end = updatedSegment.start + 1;
+            }
+
+            newSegments[index] = updatedSegment;
             return newSegments;
         });
     };
@@ -64,8 +78,71 @@ export default function SegmentReviewScreen({
         setCurrentSegment(index);
     };
 
+    // Function to adjust time by small increments
+    const adjustTime = (index: number, field: 'start' | 'end', delta: number) => {
+        if (index === null) return;
+
+        setSegments(prev => {
+            const newSegments = [...prev];
+            const segment = { ...newSegments[index] };
+            const maxDuration = videoMetadata?.duration || 3600;
+
+            if (field === 'start') {
+                // Ensure start can't go below 0 or above maxDuration-1
+                segment.start = Math.max(0, Math.min(maxDuration - 1, segment.start + delta));
+                // Ensure end is at least 1 second after start
+                if (segment.end <= segment.start + 1) {
+                    segment.end = segment.start + 1;
+                }
+            } else {
+                // Ensure end can't exceed video duration
+                segment.end = Math.min(maxDuration, segment.end + delta);
+                // Ensure end is at least 1 second after start
+                if (segment.end <= segment.start + 1) {
+                    segment.end = segment.start + 1;
+                }
+            }
+
+            newSegments[index] = segment;
+            return newSegments;
+        });
+    };
+
+    // Function to convert MM:SS format to seconds
+    const timeToSeconds = (timeString: string): number => {
+        const [minutesStr, secondsStr] = timeString.split(':');
+        const minutes = parseInt(minutesStr, 10) || 0;
+        const seconds = parseInt(secondsStr, 10) || 0;
+        return minutes * 60 + seconds;
+    };
+
+    // Function to convert seconds to MM:SS format
+    const secondsToTime = (seconds: number): string => {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = Math.floor(seconds % 60);
+        return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    };
+
     // Function to handle time input changes
     const handleTimeChange = (index: number, field: 'start' | 'end', value: string) => {
+        // Handle MM:SS format
+        if (value.includes(':')) {
+            const timeInSeconds = timeToSeconds(value);
+            const maxTime = videoMetadata?.duration || 3600;
+
+            // Apply min/max boundaries
+            if (field === 'start') {
+                const boundedTime = Math.min(Math.max(0, timeInSeconds), maxTime - 1);
+                updateSegment(index, { [field]: boundedTime });
+            } else {
+                const boundedTime = Math.min(Math.max(0, timeInSeconds), maxTime);
+                updateSegment(index, { [field]: boundedTime });
+            }
+        }
+    };
+
+    // Function to handle slider change
+    const handleSliderChange = (index: number, field: 'start' | 'end', value: string) => {
         const timeInSeconds = parseFloat(value);
         if (!isNaN(timeInSeconds)) {
             updateSegment(index, { [field]: timeInSeconds });
@@ -81,16 +158,20 @@ export default function SegmentReviewScreen({
 
     // Check if segments overlap or have other issues
     const validateSegments = () => {
+        // Check each segment individually first
+        for (const segment of segments) {
+            // End time must be at least 1 second after start time
+            if (segment.end <= segment.start) {
+                return false;
+            }
+        }
+
         // Sort segments by start time
         const sortedSegments = [...segments].sort((a, b) => a.start - b.start);
 
-        // Check for overlaps and other issues
+        // Check for overlaps
         for (let i = 0; i < sortedSegments.length - 1; i++) {
             if (sortedSegments[i].end > sortedSegments[i + 1].start) {
-                return false;
-            }
-
-            if (sortedSegments[i].start >= sortedSegments[i].end) {
                 return false;
             }
         }
@@ -99,6 +180,7 @@ export default function SegmentReviewScreen({
     };
 
     const isValid = validateSegments();
+    const maxDuration = videoMetadata?.duration || 3600;
 
     return (
         <div className="w-full">
@@ -134,7 +216,7 @@ export default function SegmentReviewScreen({
                                     <div>
                                         <span className="font-medium">Segment {index + 1}</span>
                                         <p className="text-sm text-gray-600 mt-1">
-                                            {formatTime(segment.start)} - {formatTime(segment.end)} ({(segment.end - segment.start).toFixed(1)}s)
+                                            {formatTime(segment.start)} - {formatTime(segment.end)} ({Math.floor(segment.end - segment.start)} seconds)
                                         </p>
                                     </div>
                                     <button
@@ -162,30 +244,83 @@ export default function SegmentReviewScreen({
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Start Time (seconds)</label>
+                            <div className="mb-6">
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-sm font-medium text-gray-700">Start Time</label>
+                                    <div className="flex items-center">
+                                        <button
+                                            onClick={() => adjustTime(currentSegment, 'start', -1)}
+                                            className="px-2 py-1 bg-gray-200 rounded-l-md hover:bg-gray-300 text-sm"
+                                        >
+                                            -1s
+                                        </button>
+                                        <input
+                                            type="text"
+                                            placeholder="00:00"
+                                            value={secondsToTime(segments[currentSegment].start)}
+                                            onChange={(e) => handleTimeChange(currentSegment, 'start', e.target.value)}
+                                            className="w-16 text-center px-2 py-1 border border-gray-300"
+                                        />
+                                        <button
+                                            onClick={() => adjustTime(currentSegment, 'start', 1)}
+                                            className="px-2 py-1 bg-gray-200 rounded-r-md hover:bg-gray-300 text-sm"
+                                        >
+                                            +1s
+                                        </button>
+                                    </div>
+                                </div>
                                 <input
-                                    type="number"
-                                    step="0.1"
+                                    type="range"
                                     min="0"
-                                    max={videoMetadata?.duration || 3600}
+                                    max={maxDuration - 1}
+                                    step="1"
                                     value={segments[currentSegment].start}
-                                    onChange={(e) => handleTimeChange(currentSegment, 'start', e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    onChange={(e) => handleSliderChange(currentSegment, 'start', e.target.value)}
+                                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                />
+                            </div>
+
+                            <div className="mb-6">
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-sm font-medium text-gray-700">End Time</label>
+                                    <div className="flex items-center">
+                                        <button
+                                            onClick={() => adjustTime(currentSegment, 'end', -1)}
+                                            className="px-2 py-1 bg-gray-200 rounded-l-md hover:bg-gray-300 text-sm"
+                                        >
+                                            -1s
+                                        </button>
+                                        <input
+                                            type="text"
+                                            placeholder="00:00"
+                                            value={secondsToTime(segments[currentSegment].end)}
+                                            onChange={(e) => handleTimeChange(currentSegment, 'end', e.target.value)}
+                                            className="w-16 text-center px-2 py-1 border border-gray-300"
+                                        />
+                                        <button
+                                            onClick={() => adjustTime(currentSegment, 'end', 1)}
+                                            className="px-2 py-1 bg-gray-200 rounded-r-md hover:bg-gray-300 text-sm"
+                                        >
+                                            +1s
+                                        </button>
+                                    </div>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max={maxDuration}
+                                    step="1"
+                                    value={segments[currentSegment].end}
+                                    onChange={(e) => handleSliderChange(currentSegment, 'end', e.target.value)}
+                                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                                 />
                             </div>
 
                             <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">End Time (seconds)</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    max={videoMetadata?.duration || 3600}
-                                    value={segments[currentSegment].end}
-                                    onChange={(e) => handleTimeChange(currentSegment, 'end', e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Segment Duration</label>
+                                <div className="px-3 py-2 border border-gray-200 bg-gray-50 rounded-md">
+                                    {Math.floor(segments[currentSegment].end - segments[currentSegment].start)} seconds
+                                </div>
                             </div>
                         </div>
 
