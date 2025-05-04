@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { VideoSegment, VideoMetadata, ProgressState } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 
@@ -24,6 +24,45 @@ export default function SegmentReviewScreen({
         suggestedSegments.map(segment => ({ ...segment }))
     );
     const [currentSegment, setCurrentSegment] = useState<number | null>(null);
+
+    // Format transcript for better readability
+    const formattedTranscript = useMemo(() => {
+        if (!transcript) return '';
+
+        // Split into sentences
+        let text = transcript;
+
+        // Ensure periods have spaces after them
+        text = text.replace(/\.(?=[A-Za-z])/g, '. ');
+
+        // Ensure proper spacing after other punctuation
+        text = text.replace(/([,:;])(?=[A-Za-z])/g, '$1 ');
+
+        // Split into paragraphs (looking for natural breaks)
+        const sentences = text.split(/(?<=[.!?])\s+/);
+        const paragraphs = [];
+        let currentParagraph = '';
+
+        // Group sentences into paragraphs of 2-3 sentences
+        for (let i = 0; i < sentences.length; i++) {
+            currentParagraph += sentences[i] + ' ';
+
+            // Create a new paragraph every 2-3 sentences or when paragraph gets long
+            if (
+                (i % 3 === 2) ||
+                currentParagraph.length > 250 ||
+                i === sentences.length - 1
+            ) {
+                if (currentParagraph.trim()) {
+                    paragraphs.push(currentParagraph.trim());
+                }
+                currentParagraph = '';
+            }
+        }
+
+        // Join paragraphs with double line breaks
+        return paragraphs.join('\n\n');
+    }, [transcript]);
 
     // Function to update a segment
     const updateSegment = (index: number, updates: Partial<VideoSegment>) => {
@@ -341,7 +380,7 @@ export default function SegmentReviewScreen({
             <div className="mb-8 p-4 border border-gray-200 rounded-lg">
                 <h3 className="text-lg font-medium mb-4">Transcript</h3>
                 <div className="max-h-60 overflow-y-auto bg-gray-50 p-4 rounded-md text-sm whitespace-pre-line">
-                    {transcript}
+                    {formattedTranscript}
                 </div>
             </div>
 
