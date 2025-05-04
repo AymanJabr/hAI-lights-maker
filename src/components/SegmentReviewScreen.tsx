@@ -24,6 +24,7 @@ export default function SegmentReviewScreen({
         suggestedSegments.map(segment => ({ ...segment }))
     );
     const [currentSegment, setCurrentSegment] = useState<number | null>(null);
+    const [validationError, setValidationError] = useState<string | null>(null);
 
     // Format transcript for better readability
     const formattedTranscript = useMemo(() => {
@@ -197,10 +198,20 @@ export default function SegmentReviewScreen({
 
     // Check if segments overlap or have other issues
     const validateSegments = () => {
+        // Reset validation error
+        setValidationError(null);
+
+        // Check if there are any segments
+        if (segments.length === 0) {
+            setValidationError("You need to create at least one segment");
+            return false;
+        }
+
         // Check each segment individually first
         for (const segment of segments) {
             // End time must be at least 1 second after start time
             if (segment.end <= segment.start) {
+                setValidationError("Each segment's end time must be after its start time");
                 return false;
             }
         }
@@ -211,6 +222,7 @@ export default function SegmentReviewScreen({
         // Check for overlaps
         for (let i = 0; i < sortedSegments.length - 1; i++) {
             if (sortedSegments[i].end > sortedSegments[i + 1].start) {
+                setValidationError("Segments cannot overlap. Adjust the timing of your segments so they don't intersect.");
                 return false;
             }
         }
@@ -218,7 +230,12 @@ export default function SegmentReviewScreen({
         return true;
     };
 
-    const isValid = validateSegments();
+    // Run validation whenever segments change
+    useMemo(() => {
+        validateSegments();
+    }, [segments]);
+
+    const isValid = !validationError;
     const maxDuration = videoMetadata?.duration || 3600;
 
     return (
@@ -384,21 +401,32 @@ export default function SegmentReviewScreen({
                 </div>
             </div>
 
-            <div className="flex justify-between">
-                <button
-                    onClick={onBack}
-                    className="py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                >
-                    Back
-                </button>
+            <div className="flex flex-col space-y-4 mb-4">
+                {validationError && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm flex items-start">
+                        <svg className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span>{validationError}</span>
+                    </div>
+                )}
 
-                <button
-                    onClick={() => onApproveSegments(segments)}
-                    disabled={!isValid || segments.length === 0}
-                    className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
-                >
-                    Create Videos from {segments.length} Segments
-                </button>
+                <div className="flex justify-between">
+                    <button
+                        onClick={onBack}
+                        className="py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                    >
+                        Back
+                    </button>
+
+                    <button
+                        onClick={() => onApproveSegments(segments)}
+                        disabled={!isValid || segments.length === 0}
+                        className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+                    >
+                        Create Videos from {segments.length} Segments
+                    </button>
+                </div>
             </div>
         </div>
     );
