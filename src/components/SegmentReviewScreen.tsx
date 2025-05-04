@@ -26,6 +26,7 @@ export default function SegmentReviewScreen({
     const [currentSegment, setCurrentSegment] = useState<number | null>(null);
     const [validationError, setValidationError] = useState<string | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const [segmentPlaybackActive, setSegmentPlaybackActive] = useState(false);
 
     // Format transcript for better readability
     const formattedTranscript = useMemo(() => {
@@ -94,18 +95,18 @@ export default function SegmentReviewScreen({
         if (currentSegment !== null && videoRef.current && segments[currentSegment]) {
             // Set the current time to the segment start
             videoRef.current.currentTime = segments[currentSegment].start;
-            // Play the video
-            videoRef.current.play().catch(e => console.error("Error playing video:", e));
+            // Activate segment mode when segment is selected
+            setSegmentPlaybackActive(true);
         }
     }, [currentSegment, segments]);
 
-    // Effect to monitor video playback and pause at segment end
+    // Effect to monitor video playback and pause at segment end only in segment mode
     useEffect(() => {
         const videoElement = videoRef.current;
         if (!videoElement) return;
 
         const handleTimeUpdate = () => {
-            if (currentSegment !== null && segments[currentSegment]) {
+            if (currentSegment !== null && segments[currentSegment] && segmentPlaybackActive) {
                 const { end } = segments[currentSegment];
                 if (videoElement.currentTime >= end) {
                     videoElement.pause();
@@ -120,7 +121,13 @@ export default function SegmentReviewScreen({
         return () => {
             videoElement.removeEventListener('timeupdate', handleTimeUpdate);
         };
-    }, [currentSegment, segments]);
+    }, [currentSegment, segments, segmentPlaybackActive]);
+
+    // Custom handler for when user interacts directly with the video player
+    const handleDirectVideoInteraction = () => {
+        // Disable segment mode when user interacts directly with video player
+        setSegmentPlaybackActive(false);
+    };
 
     // Function to add a new segment
     const addSegment = () => {
@@ -270,6 +277,7 @@ export default function SegmentReviewScreen({
 
         const segment = segments[currentSegment];
         videoRef.current.currentTime = segment.start;
+        setSegmentPlaybackActive(true);
         videoRef.current.play().catch(e => console.error("Error playing video:", e));
     };
 
@@ -292,6 +300,7 @@ export default function SegmentReviewScreen({
                         <VideoPlayer
                             src={videoUrl}
                             ref={videoRef}
+                            onDirectInteraction={handleDirectVideoInteraction}
                         />
                         {currentSegment !== null && (
                             <div className="mt-2 flex justify-between items-center">

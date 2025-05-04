@@ -5,12 +5,13 @@ interface VideoPlayerProps {
     src: string;
     segments?: VideoSegment[];
     onSegmentClick?: (segment: VideoSegment) => void;
+    onDirectInteraction?: () => void;
     autoPlay?: boolean;
     id?: string;
 }
 
 const VideoPlayer = forwardRef(function VideoPlayer(
-    { src, segments = [], onSegmentClick, autoPlay = false, id }: VideoPlayerProps,
+    { src, segments = [], onSegmentClick, onDirectInteraction, autoPlay = false, id }: VideoPlayerProps,
     ref: ForwardedRef<HTMLVideoElement>
 ) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -111,6 +112,9 @@ const VideoPlayer = forwardRef(function VideoPlayer(
         const video = videoRef.current;
         if (!video) return;
 
+        // Signal direct user interaction
+        onDirectInteraction?.();
+
         if (video.paused) {
             video.play();
         } else {
@@ -176,20 +180,26 @@ const VideoPlayer = forwardRef(function VideoPlayer(
         if (!video) return;
 
         video.currentTime = time;
-        if (!isPlaying) {
-            video.play();
-        }
     };
 
     const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
         const progressBar = progressBarRef.current;
         if (!progressBar || !videoRef.current) return;
 
+        // Signal direct user interaction
+        onDirectInteraction?.();
+
         const rect = progressBar.getBoundingClientRect();
         const clickPosition = (e.clientX - rect.left) / rect.width;
         const newTime = clickPosition * duration;
 
-        seekTo(newTime);
+        // This will trigger the seeking event
+        videoRef.current.currentTime = newTime;
+
+        // Resume playback if it was already playing
+        if (isPlaying) {
+            videoRef.current.play();
+        }
     };
 
     const formatTime = (seconds: number) => {
@@ -260,7 +270,9 @@ const VideoPlayer = forwardRef(function VideoPlayer(
                                     }}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        seekTo(segment.start);
+                                        // Simply seek to start position without starting playback
+                                        videoRef.current!.currentTime = segment.start;
+                                        // Don't call onDirectInteraction here - this is segment interaction
                                         onSegmentClick?.(segment);
                                     }}
                                     title={segment.description || `Segment ${index + 1}`}
@@ -373,7 +385,9 @@ const VideoPlayer = forwardRef(function VideoPlayer(
                                 key={index}
                                 className="p-3 bg-gray-100 rounded-lg flex items-center justify-between hover:bg-gray-200 cursor-pointer"
                                 onClick={() => {
-                                    seekTo(segment.start);
+                                    // Simply seek to start position without starting playback
+                                    videoRef.current!.currentTime = segment.start;
+                                    // Don't call onDirectInteraction here - this is segment interaction
                                     onSegmentClick?.(segment);
                                 }}
                             >
