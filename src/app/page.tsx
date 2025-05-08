@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ApiKeyConfig from '@/components/ApiKeyConfig';
 import ProcessingLog from '@/components/ProcessingLog';
 import Header from '@/components/layout/Header';
@@ -10,6 +10,25 @@ import ResultsSection from '@/components/ResultsSection';
 import SegmentReviewScreen from '@/components/SegmentReviewScreen';
 import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, VideoMetadata, ProgressState, VideoSegment } from '@/types';
 import { useVideoProcessor } from '@/components/VideoProcessor';
+
+// Basic Modal Component (can be moved to its own file and styled)
+interface ErrorModalProps {
+    isOpen: boolean;
+    message: string | null;
+    onClose: () => void;
+}
+const ErrorModal: React.FC<ErrorModalProps> = ({ isOpen, message, onClose }) => {
+    if (!isOpen || !message) return null;
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', color: 'black' }}>
+                <h3>Error</h3>
+                <p>{message}</p>
+                <button onClick={onClose} style={{ marginTop: '10px' }}>Close</button>
+            </div>
+        </div>
+    );
+};
 
 export default function Home() {
     const [apiConfig, setApiConfig] = useState<ApiKeyConfigType | null>(null);
@@ -31,7 +50,23 @@ export default function Home() {
     const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
     const [transcript, setTranscript] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
+    const [isFileSizeErrorModalOpen, setIsFileSizeErrorModalOpen] = useState(false);
     const [currentStep, setCurrentStep] = useState<'upload' | 'configure' | 'review' | 'results'>('upload');
+
+    // Effect to watch for file size errors and trigger the modal
+    useEffect(() => {
+        if (error && error.includes('File exceeds') && error.includes('GB size limit')) {
+            setIsFileSizeErrorModalOpen(true);
+            // Keep the original error in the 'error' state so ConfigurationSection can still see it if needed,
+            // or set setError(null) if this modal should be the ONLY way this specific error is shown.
+            // For now, let's assume the modal is primary for this specific error.
+        }
+    }, [error]);
+
+    const closeFileSizeErrorModal = () => {
+        setIsFileSizeErrorModalOpen(false);
+        setError(null); // Clear the main error state when modal is closed
+    };
 
     // Always call useVideoProcessor, pass apiKey only if it exists
     const videoProcessor = useVideoProcessor({
@@ -41,11 +76,15 @@ export default function Home() {
         highlightConfig,
         onProgress: setProgress,
         onProcessingComplete: (video, transcriptText) => {
+            setError(null); // Clear any previous errors on successful completion
             setSuggestedSegments(video.segments);
             setTranscript(transcriptText);
             setCurrentStep('review');
         },
-        onError: setError
+        onError: (errorMessage: string) => {
+            // The `errorMessage` here is already the string from ApiError or generic error
+            setError(errorMessage);
+        }
     });
 
     const handleApiConfigured = (config: ApiKeyConfigType) => {
@@ -136,7 +175,7 @@ export default function Home() {
                     onGenerateSegments={handleProcessVideo}
                     progress={progress}
                     isLoading={videoProcessor?.isLoading || false}
-                    openAIError={videoProcessor?.openAIError || null}
+                    openAIError={isFileSizeErrorModalOpen ? null : error}
                 />
             );
         }
@@ -193,6 +232,12 @@ export default function Home() {
                     </>
                 )}
             </div>
+
+            <ErrorModal
+                isOpen={isFileSizeErrorModalOpen}
+                message={error} // The 'error' state will contain the specific message
+                onClose={closeFileSizeErrorModal}
+            />
         </div>
     );
 } 

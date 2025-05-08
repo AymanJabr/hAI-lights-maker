@@ -3,6 +3,9 @@ import { ProgressState } from '@/types';
 import { getMaxVideoSize, formatFileSize } from '@/lib/utils/device-utils';
 import VideoSizeWarningModal from './VideoSizeWarningModal';
 
+const HARD_MAX_FILE_SIZE_BYTES = 1.5 * 1024 * 1024 * 1024; // 1.5 GiB
+const HARD_MAX_FILE_SIZE_GB_STRING = (HARD_MAX_FILE_SIZE_BYTES / (1024 * 1024 * 1024)).toFixed(1);
+
 interface VideoUploaderProps {
     onVideoSelected: (file: File) => void;
     isProcessing: boolean;
@@ -12,13 +15,12 @@ interface VideoUploaderProps {
 export default function VideoUploader({ onVideoSelected, isProcessing, progress }: VideoUploaderProps) {
     const [dragActive, setDragActive] = useState(false);
     const [showWarningModal, setShowWarningModal] = useState(false);
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [selectedFileForWarning, setSelectedFileForWarning] = useState<File | null>(null);
     const [maxVideoSize, setMaxVideoSize] = useState<number>(100 * 1024 * 1024); // Default 100MB
+    const [hardLimitError, setHardLimitError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Set max video size based on device capabilities when component mounts
     useEffect(() => {
-        // Only run on client side
         if (typeof window !== 'undefined') {
             setMaxVideoSize(getMaxVideoSize());
         }
@@ -35,19 +37,31 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
     };
 
     const processVideoFile = (file: File) => {
-        if (isVideoFile(file)) {
-            setSelectedFile(file);
+        setHardLimitError(null);
 
-            // Check if file size exceeds recommended maximum
-            if (file.size > maxVideoSize) {
-                console.log(`Large file detected: ${formatFileSize(file.size)}, recommended max: ${formatFileSize(maxVideoSize)}`);
-                setShowWarningModal(true);
-            } else {
-                // Proceed with normal upload
-                onVideoSelected(file);
-            }
+        if (!isVideoFile(file)) {
+            setHardLimitError('Please upload a valid video file.');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
+
+        if (file.size > HARD_MAX_FILE_SIZE_BYTES) {
+            const errorMsg = `File size (${formatFileSize(file.size)}) exceeds the absolute limit of ${HARD_MAX_FILE_SIZE_GB_STRING}GB.`;
+            console.error(errorMsg);
+            setHardLimitError(errorMsg);
+            setSelectedFileForWarning(null);
+            setShowWarningModal(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
+
+        if (file.size > maxVideoSize) {
+            console.log(`Large file detected (for warning): ${formatFileSize(file.size)}, recommended max: ${formatFileSize(maxVideoSize)}`);
+            setSelectedFileForWarning(file);
+            setShowWarningModal(true);
         } else {
-            alert('Please upload a valid video file.');
+            onVideoSelected(file);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 
@@ -55,17 +69,18 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
         e.preventDefault();
         e.stopPropagation();
         setDragActive(false);
-
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            const file = e.dataTransfer.files[0];
-            processVideoFile(file);
+            processVideoFile(e.dataTransfer.files[0]);
         }
     };
 
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            processVideoFile(file);
+            processVideoFile(e.target.files[0]);
+        } else {
+            setHardLimitError(null);
+            setSelectedFileForWarning(null);
+            setShowWarningModal(false);
         }
     };
 
@@ -75,15 +90,16 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
 
     const handleWarningConfirm = () => {
         setShowWarningModal(false);
-        if (selectedFile) {
-            onVideoSelected(selectedFile);
+        if (selectedFileForWarning) {
+            onVideoSelected(selectedFileForWarning);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
+        setSelectedFileForWarning(null);
     };
 
     const handleWarningClose = () => {
         setShowWarningModal(false);
-        setSelectedFile(null);
-        // Reset file input
+        setSelectedFileForWarning(null);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -135,6 +151,13 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
                 </div>
             </div>
 
+            {hardLimitError && (
+                <div className="mt-4 p-3 bg-red-100 border border-red-300 rounded-md text-center">
+                    <p className="text-sm text-red-700 font-semibold">Upload Failed</p>
+                    <p className="text-sm text-red-600">{hardLimitError}</p>
+                </div>
+            )}
+
             {isProcessing && (
                 <div className="mt-6">
                     <p className="text-sm font-medium text-gray-700 mb-1">
@@ -152,19 +175,18 @@ export default function VideoUploader({ onVideoSelected, isProcessing, progress 
                 </div>
             )}
 
-            {progress.error && (
+            {progress.error && !hardLimitError && !showWarningModal && (
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
                     <p className="text-sm text-red-600">{progress.error}</p>
                 </div>
             )}
 
-            {/* Warning Modal */}
-            {selectedFile && (
+            {selectedFileForWarning && (
                 <VideoSizeWarningModal
                     isOpen={showWarningModal}
                     onClose={handleWarningClose}
                     onConfirm={handleWarningConfirm}
-                    fileSize={selectedFile.size}
+                    fileSize={selectedFileForWarning.size}
                     maxRecommendedSize={maxVideoSize}
                 />
             )}

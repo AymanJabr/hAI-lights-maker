@@ -1,6 +1,18 @@
 import { useState } from 'react';
 import { TranscriptionResult, VideoSegment, HighlightConfig } from '@/types';
 
+// Define a custom error class to include status
+export class ApiError extends Error {
+    status?: number;
+    constructor(message: string, status?: number) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+        // Set the prototype explicitly to allow instanceof checks
+        Object.setPrototypeOf(this, ApiError.prototype);
+    }
+}
+
 interface UseOpenAIProps {
     apiKey?: string;
 }
@@ -37,14 +49,26 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
 
             if (!response.ok) {
                 let errorText = '';
+                let isFileSizeError = false;
+                let responseStatus = response.status; // Store status before trying to parse body
                 try {
                     const errorJson = await response.json();
-                    errorText = JSON.stringify(errorJson);
+                    if (responseStatus === 413 && errorJson.error) {
+                        errorText = errorJson.error;
+                        isFileSizeError = true;
+                    } else {
+                        errorText = JSON.stringify(errorJson);
+                    }
                 } catch (e) {
-                    errorText = await response.text();
+                    errorText = await response.text(); // Fallback if .json() fails
                 }
-                console.error(`Transcription API error (${response.status}):`, errorText);
-                throw new Error(`Transcription failed: ${response.status} ${response.statusText}. ${errorText}`);
+                console.error(`Transcription API error (${responseStatus}):`, errorText);
+
+                const finalErrorMessage = isFileSizeError
+                    ? errorText
+                    : `Transcription failed: ${responseStatus} ${response.statusText}. ${errorText}`;
+
+                throw new ApiError(finalErrorMessage, responseStatus);
             }
 
             console.log('Transcription API response received');
@@ -58,9 +82,22 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
 
             return result;
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Unknown error during transcription';
+            let errorMessage: string;
+            let errorStatus: number | undefined = undefined;
+
+            if (err instanceof ApiError) {
+                errorMessage = err.message;
+                errorStatus = err.status;
+            } else if (err instanceof Error) {
+                errorMessage = err.message;
+            } else {
+                errorMessage = 'Unknown error during transcription';
+            }
+
             console.error('Transcription error details:', err);
-            setError(errorMessage);
+            // Potentially enrich the global error state if needed, or rely on the component using the hook
+            setError(errorMessage); // setError will store the message string
+            // Re-throw the original error (or the ApiError) so the calling component can also react, e.g. to status
             throw err;
         } finally {
             setIsLoading(false);
