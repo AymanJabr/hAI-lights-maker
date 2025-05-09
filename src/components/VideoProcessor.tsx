@@ -56,15 +56,63 @@ export function useVideoProcessor({
             updateProgress('transcribing', 0, 'Extracting audio...');
             console.log('Step 1: Extracting audio from video');
 
+            // We need to extract audio first to reduce file size
+            let audioBlob;
+            try {
+                console.log('Extracting audio from video using FFmpeg');
+
+                // Import FFmpeg dynamically
+                const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+                const { fetchFile } = await import('@ffmpeg/util');
+
+                // Create a new FFmpeg instance
+                const ffmpeg = new FFmpeg();
+                console.log('Loading FFmpeg for audio extraction');
+                await ffmpeg.load();
+                console.log('FFmpeg loaded successfully');
+
+                // Write the video file to FFmpeg filesystem
+                await ffmpeg.writeFile('input.mp4', await fetchFile(videoFile));
+                console.log('Input file written to FFmpeg filesystem');
+
+                // Extract audio to MP3 format
+                await ffmpeg.exec([
+                    '-i', 'input.mp4',
+                    '-vn',                // No video
+                    '-acodec', 'libmp3lame', // MP3 codec
+                    '-q:a', '4',          // Quality setting (lower = better quality)
+                    '-ar', '44100',       // Audio sampling rate
+                    'output.mp3'
+                ]);
+
+                // Read the audio file
+                const audioData = await ffmpeg.readFile('output.mp3');
+                if (audioData && audioData instanceof Uint8Array) {
+                    audioBlob = new Blob([audioData], { type: 'audio/mpeg' });
+                    console.log(`Extracted audio file: ${(audioBlob.size / (1024 * 1024)).toFixed(2)}MB`);
+                } else {
+                    throw new Error('Failed to extract audio: output data is empty or invalid');
+                }
+
+                // Clean up
+                await ffmpeg.deleteFile('input.mp4');
+                await ffmpeg.deleteFile('output.mp3');
+                await ffmpeg.terminate();
+                console.log('FFmpeg resources released');
+            } catch (error) {
+                console.error('Error extracting audio:', error);
+                throw new Error(`Failed to extract audio: ${error instanceof Error ? error.message : String(error)}`);
+            }
+
             // For now, we'll just use the video file directly
             console.log('Step 2: Starting transcription');
-            console.log(`Sending file to transcription API: ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)}MB)`);
+            console.log(`Sending audio file to transcription API: ${(audioBlob.size / (1024 * 1024)).toFixed(2)}MB`);
             updateProgress('transcribing', 20, 'Transcribing audio...');
 
             const transcriptionStart = performance.now();
             let transcriptionResult;
             try {
-                transcriptionResult = await transcribeAudio(videoFile);
+                transcriptionResult = await transcribeAudio(audioBlob);
                 const transcriptionTime = ((performance.now() - transcriptionStart) / 1000).toFixed(2);
 
                 console.log(`Transcription completed in ${transcriptionTime}s`);

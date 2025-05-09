@@ -21,6 +21,83 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Function to split audio into chunks
+    async function splitAudioIntoChunks(audioBlob: Blob, maxChunkSizeBytes: number = 15 * 1024 * 1024): Promise<Blob[]> {
+        console.log(`Splitting audio file (${audioBlob.size} bytes) into chunks of max ${maxChunkSizeBytes} bytes`);
+
+        // If file is already small enough, return it as is
+        if (audioBlob.size <= maxChunkSizeBytes) {
+            console.log('Audio file is already small enough, no splitting needed');
+            return [audioBlob];
+        }
+
+        try {
+            // Import FFmpeg dynamically
+            const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+            const { fetchFile } = await import('@ffmpeg/util');
+
+            // Create a new FFmpeg instance
+            const ffmpeg = new FFmpeg();
+            console.log('Loading FFmpeg for audio splitting');
+            await ffmpeg.load();
+            console.log('FFmpeg loaded successfully');
+
+            // Write input file to FFmpeg filesystem
+            const inputFileName = 'input.mp3';
+            await ffmpeg.writeFile(inputFileName, await fetchFile(audioBlob));
+            console.log('Input file written to FFmpeg filesystem');
+
+            // Calculate the number of chunks needed based on file size
+            const numChunks = Math.ceil(audioBlob.size / maxChunkSizeBytes);
+            console.log(`Splitting into ${numChunks} chunks`);
+
+            // Use the segment_time option with the stream copy feature to split the file
+            // This avoids the need to calculate exact durations
+            await ffmpeg.exec([
+                '-i', inputFileName,
+                '-f', 'segment',         // Use the segment muxer
+                '-segment_time', '300',  // Each segment approximately 5 minutes
+                '-c', 'copy',            // Stream copy (no re-encoding)
+                '-reset_timestamps', '1', // Reset timestamps
+                '-map', '0',             // Map all streams
+                'chunk-%03d.mp3'         // Output pattern
+            ]);
+
+            // List all created chunk files
+            const files = await ffmpeg.listDir('./');
+            const chunkFiles = files
+                .filter(file => file.name.startsWith('chunk-') && file.name.endsWith('.mp3'))
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            console.log(`Created ${chunkFiles.length} chunk files`);
+
+            // Read each chunk and convert to Blob
+            const chunks: Blob[] = [];
+            for (const file of chunkFiles) {
+                const fileData = await ffmpeg.readFile(file.name);
+                // Only create blob if data is available and is a Uint8Array
+                if (fileData && fileData instanceof Uint8Array) {
+                    const chunkBlob = new Blob([fileData], { type: 'audio/mpeg' });
+                    console.log(`Chunk ${file.name}: ${chunkBlob.size} bytes`);
+                    chunks.push(chunkBlob);
+
+                    // Clean up the chunk file
+                    await ffmpeg.deleteFile(file.name);
+                }
+            }
+
+            // Clean up and release FFmpeg
+            await ffmpeg.deleteFile(inputFileName);
+            await ffmpeg.terminate();
+            console.log('FFmpeg resources released');
+
+            return chunks;
+        } catch (error) {
+            console.error('Error splitting audio:', error);
+            throw new Error(`Failed to split audio file: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     async function transcribeAudio(audioBlob: Blob): Promise<TranscriptionResult> {
         setIsLoading(true);
         setError(null);
@@ -32,55 +109,55 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
 
             console.log(`Preparing to transcribe audio file (${audioBlob.size} bytes)`);
 
-            const formData = new FormData();
-            formData.append('file', audioBlob, 'audio.mp3');
-            formData.append('model', 'whisper-1');
-            formData.append('response_format', 'json');
-            formData.append('timestamp_granularities[]', 'segment');
+            // If the file is larger than 15MB, split it into chunks
+            const MAX_CHUNK_SIZE = 15 * 1024 * 1024; // 15MB
 
-            console.log('Sending transcription request to API');
-            const response = await fetch('/api/openai/transcribe', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-API-KEY': apiKey || '',
-                },
-            });
+            if (audioBlob.size > MAX_CHUNK_SIZE) {
+                console.log(`File size (${audioBlob.size} bytes) exceeds ${MAX_CHUNK_SIZE} bytes, splitting into chunks`);
 
-            if (!response.ok) {
-                let errorText = '';
-                let isFileSizeError = false;
-                let responseStatus = response.status; // Store status before trying to parse body
-                try {
-                    const errorJson = await response.json();
-                    if (responseStatus === 413 && errorJson.error) {
-                        errorText = errorJson.error;
-                        isFileSizeError = true;
-                    } else {
-                        errorText = JSON.stringify(errorJson);
+                // Split the audio into chunks
+                const audioChunks = await splitAudioIntoChunks(audioBlob, MAX_CHUNK_SIZE);
+                console.log(`Split audio into ${audioChunks.length} chunks`);
+
+                // Process each chunk and collect transcription results
+                let combinedTranscription = '';
+                const segmentTimestamps: any[] = []; // Store all segment timestamps
+
+                for (let i = 0; i < audioChunks.length; i++) {
+                    console.log(`Transcribing chunk ${i + 1}/${audioChunks.length} (${audioChunks[i].size} bytes)`);
+
+                    // Calculate the time offset for this chunk (approximate)
+                    const chunkOffset = i * (audioBlob.size / audioChunks.length) / (audioBlob.size / audioChunks[0].size);
+
+                    // Transcribe this chunk
+                    const chunkResult = await transcribeSingleChunk(audioChunks[i]);
+
+                    // Append text
+                    combinedTranscription += (i > 0 ? ' ' : '') + chunkResult.text;
+
+                    // Adjust timestamps from this chunk to account for offset
+                    if (chunkResult.segments && Array.isArray(chunkResult.segments)) {
+                        const adjustedSegments = chunkResult.segments.map(segment => ({
+                            ...segment,
+                            start: segment.start + chunkOffset,
+                            end: segment.end + chunkOffset,
+                        }));
+                        segmentTimestamps.push(...adjustedSegments);
                     }
-                } catch (e) {
-                    errorText = await response.text(); // Fallback if .json() fails
+
+                    console.log(`Chunk ${i + 1} transcription complete`);
                 }
-                console.error(`Transcription API error (${responseStatus}):`, errorText);
 
-                const finalErrorMessage = isFileSizeError
-                    ? errorText
-                    : `Transcription failed: ${responseStatus} ${response.statusText}. ${errorText}`;
-
-                throw new ApiError(finalErrorMessage, responseStatus);
+                // Return the combined results
+                return {
+                    text: combinedTranscription,
+                    segments: segmentTimestamps
+                };
+            } else {
+                // If the file is small enough, transcribe it directly
+                console.log('File is small enough for direct transcription');
+                return await transcribeSingleChunk(audioBlob);
             }
-
-            console.log('Transcription API response received');
-            const result = await response.json();
-
-            // Validate the response
-            if (!result.text) {
-                console.error('Invalid transcription result:', result);
-                throw new Error('Invalid transcription result: missing text');
-            }
-
-            return result;
         } catch (err) {
             let errorMessage: string;
             let errorStatus: number | undefined = undefined;
@@ -102,6 +179,59 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
         } finally {
             setIsLoading(false);
         }
+    }
+
+    // Helper function to transcribe a single chunk
+    async function transcribeSingleChunk(audioBlob: Blob): Promise<TranscriptionResult> {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'audio.mp3');
+        formData.append('model', 'whisper-1');
+        formData.append('response_format', 'json');
+        formData.append('timestamp_granularities[]', 'segment');
+
+        console.log(`Sending transcription request to API for ${audioBlob.size} bytes`);
+        const response = await fetch('/api/openai/transcribe', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-API-KEY': apiKey || '',
+            },
+        });
+
+        if (!response.ok) {
+            let errorText = '';
+            let isFileSizeError = false;
+            let responseStatus = response.status; // Store status before trying to parse body
+            try {
+                const errorJson = await response.json();
+                if (responseStatus === 413 && errorJson.error) {
+                    errorText = errorJson.error;
+                    isFileSizeError = true;
+                } else {
+                    errorText = JSON.stringify(errorJson);
+                }
+            } catch (e) {
+                errorText = await response.text(); // Fallback if .json() fails
+            }
+            console.error(`Transcription API error (${responseStatus}):`, errorText);
+
+            const finalErrorMessage = isFileSizeError
+                ? errorText
+                : `Transcription failed: ${responseStatus} ${response.statusText}. ${errorText}`;
+
+            throw new ApiError(finalErrorMessage, responseStatus);
+        }
+
+        console.log('Transcription API response received');
+        const result = await response.json();
+
+        // Validate the response
+        if (!result.text) {
+            console.error('Invalid transcription result:', result);
+            throw new Error('Invalid transcription result: missing text');
+        }
+
+        return result;
     }
 
     async function findHighlights(
