@@ -117,22 +117,6 @@ export default function ProcessingLog({ isProcessing, latestMessage }: Processin
         }
     }, [logs, expanded]);
 
-    // Clear logs when processing starts/stops
-    useEffect(() => {
-        if (!isProcessing && logs.length > 0) {
-            // If there's an error, keep the logs visible longer
-            const hasError = logs.some(log => log.type === 'error');
-            const timeoutDuration = hasError ? 30000 : 10000; // 30 seconds for errors, 10 seconds otherwise
-
-            const timer = setTimeout(() => {
-                setLogs([]);
-                setExpanded(false);
-            }, timeoutDuration);
-
-            return () => clearTimeout(timer);
-        }
-    }, [isProcessing, logs]);
-
     // Always show if there are logs
     if (logs.length === 0) {
         return null;
