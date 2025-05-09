@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useOpenAI } from '@/hooks/useOpenAI';
-import { ProcessedVideo, HighlightConfig, VideoMetadata, ProgressState } from '@/types';
+import { ProcessedVideo, HighlightConfig, VideoMetadata, ProgressState, TranscriptionResult } from '@/types';
 
 interface VideoProcessorProps {
     apiKey: string;
@@ -9,7 +9,7 @@ interface VideoProcessorProps {
     videoMetadata: VideoMetadata | null;
     highlightConfig: HighlightConfig;
     onProgress: (progress: ProgressState) => void;
-    onProcessingComplete: (processedVideo: ProcessedVideo, transcript: string) => void;
+    onProcessingComplete: (processedVideo: ProcessedVideo, transcript: string, transcriptionResult?: TranscriptionResult) => void;
     onError: (error: string) => void;
 }
 
@@ -155,7 +155,7 @@ export function useVideoProcessor({
             console.log('--- Segment suggestion complete ---');
 
             // Notify parent component of completion with suggested segments
-            onProcessingComplete(processedVideo, transcriptionResult.text);
+            onProcessingComplete(processedVideo, transcriptionResult.text, transcriptionResult);
 
         } catch (err) {
             console.error('Error during video processing:', err);

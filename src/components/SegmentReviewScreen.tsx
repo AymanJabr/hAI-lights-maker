@@ -1,10 +1,11 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { VideoSegment, VideoMetadata, ProgressState } from '@/types';
+import { VideoSegment, VideoMetadata, ProgressState, TranscriptionResult } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 
 interface SegmentReviewScreenProps {
     videoUrl: string;
     transcript: string;
+    transcriptionResult?: TranscriptionResult;
     suggestedSegments: VideoSegment[];
     videoMetadata: VideoMetadata | null;
     onApproveSegments: (segments: VideoSegment[]) => void;
@@ -14,6 +15,7 @@ interface SegmentReviewScreenProps {
 export default function SegmentReviewScreen({
     videoUrl,
     transcript,
+    transcriptionResult,
     suggestedSegments,
     videoMetadata,
     onApproveSegments,
@@ -66,6 +68,35 @@ export default function SegmentReviewScreen({
         // Join paragraphs with double line breaks
         return paragraphs.join('\n\n');
     }, [transcript]);
+
+    // Function to format time as mm:ss - defined BEFORE it's used in renderTranscriptWithTimestamps
+    const formatTime = (timeInSeconds: number) => {
+        const minutes = Math.floor(timeInSeconds / 60);
+        const seconds = Math.floor(timeInSeconds % 60);
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    // Display transcript with timestamps if available
+    const renderTranscriptWithTimestamps = useMemo(() => {
+        if (!transcriptionResult?.segments || transcriptionResult.segments.length === 0) {
+            // Fall back to formatted transcript if no segments
+            return formattedTranscript;
+        }
+
+        // Create the transcript with timestamps
+        return (
+            <div className="space-y-4">
+                {transcriptionResult.segments.map((segment, index) => (
+                    <div key={index} className="pb-2 border-b border-gray-100 last:border-0">
+                        <div className="text-gray-500 text-xs mb-1 font-mono">
+                            [{formatTime(segment.start)} - {formatTime(segment.end)}]
+                        </div>
+                        <div>{segment.text}</div>
+                    </div>
+                ))}
+            </div>
+        );
+    }, [transcriptionResult, formattedTranscript]);
 
     // Function to update a segment
     const updateSegment = (index: number, updates: Partial<VideoSegment>) => {
@@ -228,13 +259,6 @@ export default function SegmentReviewScreen({
         if (!isNaN(timeInSeconds)) {
             updateSegment(index, { [field]: timeInSeconds });
         }
-    };
-
-    // Function to format time as mm:ss
-    const formatTime = (timeInSeconds: number) => {
-        const minutes = Math.floor(timeInSeconds / 60);
-        const seconds = Math.floor(timeInSeconds % 60);
-        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
 
     // Check if segments overlap or have other issues
@@ -468,7 +492,7 @@ export default function SegmentReviewScreen({
             <div className="mb-8 p-4 border border-gray-200 rounded-lg">
                 <h3 className="text-lg font-medium mb-4">Transcript</h3>
                 <div className="max-h-60 overflow-y-auto bg-gray-50 p-4 rounded-md text-sm whitespace-pre-line">
-                    {formattedTranscript}
+                    {transcriptionResult?.segments ? renderTranscriptWithTimestamps : formattedTranscript}
                 </div>
             </div>
 

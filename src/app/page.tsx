@@ -8,7 +8,7 @@ import VideoUploadSection from '@/components/VideoUploadSection';
 import ConfigurationSection from '@/components/ConfigurationSection';
 import ResultsSection from '@/components/ResultsSection';
 import SegmentReviewScreen from '@/components/SegmentReviewScreen';
-import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, VideoMetadata, ProgressState, VideoSegment } from '@/types';
+import { ApiKeyConfig as ApiKeyConfigType, HighlightConfig as HighlightConfigType, ProcessedVideo, VideoMetadata, ProgressState, VideoSegment, TranscriptionResult } from '@/types';
 import { useVideoProcessor } from '@/components/VideoProcessor';
 
 // Basic Modal Component (can be moved to its own file and styled)
@@ -49,6 +49,7 @@ export default function Home() {
     const [approvedSegments, setApprovedSegments] = useState<VideoSegment[]>([]);
     const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
     const [transcript, setTranscript] = useState<string>('');
+    const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionResult | undefined>(undefined);
     const [error, setError] = useState<string | null>(null);
     const [isFileSizeErrorModalOpen, setIsFileSizeErrorModalOpen] = useState(false);
     const [currentStep, setCurrentStep] = useState<'upload' | 'configure' | 'review' | 'results'>('upload');
@@ -75,10 +76,11 @@ export default function Home() {
         videoMetadata,
         highlightConfig,
         onProgress: setProgress,
-        onProcessingComplete: (video, transcriptText) => {
+        onProcessingComplete: (video: ProcessedVideo, transcriptText: string, fullTranscriptionResult?: TranscriptionResult) => {
             setError(null); // Clear any previous errors on successful completion
             setSuggestedSegments(video.segments);
             setTranscript(transcriptText);
+            setTranscriptionResult(fullTranscriptionResult);
             setCurrentStep('review');
         },
         onError: (errorMessage: string) => {
@@ -186,6 +188,7 @@ export default function Home() {
                 <SegmentReviewScreen
                     videoUrl={videoUrl}
                     transcript={transcript}
+                    transcriptionResult={transcriptionResult}
                     suggestedSegments={suggestedSegments}
                     videoMetadata={videoMetadata}
                     onApproveSegments={handleApproveSegments}

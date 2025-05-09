@@ -126,22 +126,45 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                 for (let i = 0; i < audioChunks.length; i++) {
                     console.log(`Transcribing chunk ${i + 1}/${audioChunks.length} (${audioChunks[i].size} bytes)`);
 
-                    // Calculate the time offset for this chunk (approximate)
-                    const chunkOffset = i * (audioBlob.size / audioChunks.length) / (audioBlob.size / audioChunks[0].size);
-
                     // Transcribe this chunk
                     const chunkResult = await transcribeSingleChunk(audioChunks[i]);
+
+                    // Calculate approximate chunk duration based on the transcription result
+                    // If no duration info, use a safer estimation based on previous chunks
+                    let chunkDuration = 0;
+                    if (chunkResult.segments && chunkResult.segments.length > 0) {
+                        // Find the maximum end time in the segment
+                        chunkDuration = Math.max(...chunkResult.segments.map(s => s.end));
+                        console.log(`Estimated chunk ${i + 1} duration from segments: ${chunkDuration.toFixed(2)}s`);
+                    }
+
+                    // Calculate a time offset for this chunk based on previous chunks
+                    // For the first chunk, offset is 0. For subsequent chunks, use cumulative duration.
+                    const chunkOffset = i === 0 ? 0 :
+                        segmentTimestamps.length > 0 ?
+                            // Use the end time of the last segment as the starting point
+                            Math.max(...segmentTimestamps.map(s => s.end)) :
+                            // Fallback: use an approximation (15 seconds per chunk)
+                            i * 15;
+
+                    console.log(`Using chunk ${i + 1} offset: ${chunkOffset.toFixed(2)}s`);
 
                     // Append text
                     combinedTranscription += (i > 0 ? ' ' : '') + chunkResult.text;
 
                     // Adjust timestamps from this chunk to account for offset
                     if (chunkResult.segments && Array.isArray(chunkResult.segments)) {
-                        const adjustedSegments = chunkResult.segments.map(segment => ({
-                            ...segment,
-                            start: segment.start + chunkOffset,
-                            end: segment.end + chunkOffset,
-                        }));
+                        const adjustedSegments = chunkResult.segments.map(segment => {
+                            // Apply offset and add a small gap between chunks (0.1s)
+                            const adjustedStart = segment.start + chunkOffset + (i > 0 ? 0.1 : 0);
+                            const adjustedEnd = segment.end + chunkOffset + (i > 0 ? 0.1 : 0);
+
+                            return {
+                                ...segment,
+                                start: adjustedStart,
+                                end: adjustedEnd,
+                            };
+                        });
                         segmentTimestamps.push(...adjustedSegments);
                     }
 
