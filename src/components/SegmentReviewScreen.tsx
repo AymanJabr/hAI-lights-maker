@@ -87,11 +87,11 @@ export default function SegmentReviewScreen({
         return (
             <div className="space-y-4">
                 {transcriptionResult.segments.map((segment, index) => (
-                    <div key={index} className="pb-2 border-b border-gray-100 last:border-0">
-                        <div className="text-gray-500 text-xs mb-1 font-mono">
+                    <div key={index} className="pb-4 border-b border-gray-100 last:border-0">
+                        <div className="text-gray-500 text-xs mb-2 font-mono">
                             [{formatTime(segment.start)} - {formatTime(segment.end)}]
                         </div>
-                        <div>{segment.text}</div>
+                        <div className="break-words">{segment.text}</div>
                     </div>
                 ))}
             </div>
@@ -382,7 +382,7 @@ export default function SegmentReviewScreen({
                                         </svg>
                                     </button>
                                 </div>
-                                <p className="text-sm text-gray-600 mt-1 truncate">{segment.description}</p>
+                                <p className="text-sm text-gray-600 mt-1">{segment.description}</p>
                             </div>
                         ))}
                     </div>
@@ -491,7 +491,7 @@ export default function SegmentReviewScreen({
 
             <div className="mb-8 p-4 border border-gray-200 rounded-lg">
                 <h3 className="text-lg font-medium mb-4">Transcript</h3>
-                <div className="max-h-60 overflow-y-auto bg-gray-50 p-4 rounded-md text-sm whitespace-pre-line">
+                <div className="max-h-96 overflow-y-auto bg-gray-50 p-4 rounded-md text-sm whitespace-pre-wrap">
                     {transcriptionResult?.segments ? renderTranscriptWithTimestamps : formattedTranscript}
                 </div>
             </div>
