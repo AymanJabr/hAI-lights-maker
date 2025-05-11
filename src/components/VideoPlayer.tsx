@@ -9,10 +9,11 @@ interface VideoPlayerProps {
     autoPlay?: boolean;
     id?: string;
     platformFormat?: 'youtube' | 'tiktok' | 'instagram' | 'original';
+    showSegmentMarkers?: boolean;
 }
 
 const VideoPlayer = forwardRef(function VideoPlayer(
-    { src, segments = [], onSegmentClick, onDirectInteraction, autoPlay = false, id, platformFormat = 'original' }: VideoPlayerProps,
+    { src, segments = [], onSegmentClick, onDirectInteraction, autoPlay = false, id, platformFormat = 'original', showSegmentMarkers = true }: VideoPlayerProps,
     ref: ForwardedRef<HTMLVideoElement>
 ) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -278,7 +279,7 @@ const VideoPlayer = forwardRef(function VideoPlayer(
                             style={{ width: `${(currentTime / duration) * 100}%` }}
                         >
                             {/* Render segment markers */}
-                            {segments.map((segment, index) => (
+                            {showSegmentMarkers && segments.map((segment, index) => (
                                 <div
                                     key={index}
                                     className="absolute h-4 w-1 bg-yellow-300 top-1/2 -translate-y-1/2 rounded-sm cursor-pointer"
