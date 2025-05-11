@@ -121,7 +121,10 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
 
                 // Process each chunk and collect transcription results
                 let combinedTranscription = '';
-                const segmentTimestamps: any[] = []; // Store all segment timestamps
+
+                // Using unknown[] as OpenAI's API segment structure varies between versions
+                // We'll add proper type casting when returning the final result
+                const segmentTimestamps: unknown[] = [];
 
                 for (let i = 0; i < audioChunks.length; i++) {
                     console.log(`Transcribing chunk ${i + 1}/${audioChunks.length} (${audioChunks[i].size} bytes)`);
@@ -130,7 +133,6 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                     const chunkResult = await transcribeSingleChunk(audioChunks[i]);
 
                     // Calculate approximate chunk duration based on the transcription result
-                    // If no duration info, use a safer estimation based on previous chunks
                     let chunkDuration = 0;
                     if (chunkResult.segments && chunkResult.segments.length > 0) {
                         // Find the maximum end time in the segment
@@ -139,11 +141,11 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                     }
 
                     // Calculate a time offset for this chunk based on previous chunks
-                    // For the first chunk, offset is 0. For subsequent chunks, use cumulative duration.
-                    const chunkOffset = i === 0 ? 0 :
+                    const chunkOffset: number = i === 0 ? 0 :
                         segmentTimestamps.length > 0 ?
                             // Use the end time of the last segment as the starting point
-                            Math.max(...segmentTimestamps.map(s => s.end)) :
+                            // Type assertion since we know these objects have 'end' property
+                            Math.max(...(segmentTimestamps as { end: number }[]).map(s => s.end)) :
                             // Fallback: use an approximation (15 seconds per chunk)
                             i * 15;
 
@@ -156,8 +158,8 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                     if (chunkResult.segments && Array.isArray(chunkResult.segments)) {
                         const adjustedSegments = chunkResult.segments.map(segment => {
                             // Apply offset and add a small gap between chunks (0.1s)
-                            const adjustedStart = segment.start + chunkOffset + (i > 0 ? 0.1 : 0);
-                            const adjustedEnd = segment.end + chunkOffset + (i > 0 ? 0.1 : 0);
+                            const adjustedStart: number = segment.start + chunkOffset + (i > 0 ? 0.1 : 0);
+                            const adjustedEnd: number = segment.end + chunkOffset + (i > 0 ? 0.1 : 0);
 
                             return {
                                 ...segment,
@@ -171,10 +173,10 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                     console.log(`Chunk ${i + 1} transcription complete`);
                 }
 
-                // Return the combined results
+                // Return the combined results with type assertion for segments
                 return {
                     text: combinedTranscription,
-                    segments: segmentTimestamps
+                    segments: segmentTimestamps as TranscriptionResult['segments']
                 };
             } else {
                 // If the file is small enough, transcribe it directly

@@ -1,6 +1,23 @@
 import { useRef, useEffect, useState, forwardRef, ForwardedRef } from 'react';
 import { VideoSegment } from '@/types';
 
+// Define browser-specific document interface extensions
+interface DocumentWithFullscreen extends Document {
+    webkitFullscreenElement?: Element | null;
+    mozFullScreenElement?: Element | null;
+    msFullscreenElement?: Element | null;
+    webkitExitFullscreen?: () => Promise<void>;
+    mozCancelFullScreen?: () => Promise<void>;
+    msExitFullscreen?: () => Promise<void>;
+}
+
+// Define browser-specific element interface extensions
+interface HTMLElementWithFullscreen extends HTMLElement {
+    webkitRequestFullscreen?: () => Promise<void>;
+    mozRequestFullScreen?: () => Promise<void>;
+    msRequestFullscreen?: () => Promise<void>;
+}
+
 interface VideoPlayerProps {
     src: string;
     segments?: VideoSegment[];
@@ -87,15 +104,16 @@ const VideoPlayer = forwardRef(function VideoPlayer(
             video.removeEventListener('pause', handlePause);
             video.removeEventListener('volumechange', handleVolumeChange);
         };
-    }, [videoRef]);
+    }, [videoRef, platformFormat, getAspectRatioClass]);
 
     useEffect(() => {
         const handleFullscreenChange = () => {
+            const doc = document as DocumentWithFullscreen;
             setIsFullscreen(
-                !!(document.fullscreenElement ||
-                    (document as any).webkitFullscreenElement ||
-                    (document as any).mozFullScreenElement ||
-                    (document as any).msFullscreenElement)
+                !!(doc.fullscreenElement ||
+                    doc.webkitFullscreenElement ||
+                    doc.mozFullScreenElement ||
+                    doc.msFullscreenElement)
             );
         };
 
@@ -147,28 +165,30 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     };
 
     const toggleFullscreen = () => {
-        const container = containerRef.current;
+        const container = containerRef.current as HTMLElementWithFullscreen | null;
         if (!container) return;
+
+        const doc = document as DocumentWithFullscreen;
 
         if (!isFullscreen) {
             if (container.requestFullscreen) {
                 container.requestFullscreen();
-            } else if ((container as any).webkitRequestFullscreen) {
-                (container as any).webkitRequestFullscreen();
-            } else if ((container as any).mozRequestFullScreen) {
-                (container as any).mozRequestFullScreen();
-            } else if ((container as any).msRequestFullscreen) {
-                (container as any).msRequestFullscreen();
+            } else if (container.webkitRequestFullscreen) {
+                container.webkitRequestFullscreen();
+            } else if (container.mozRequestFullScreen) {
+                container.mozRequestFullScreen();
+            } else if (container.msRequestFullscreen) {
+                container.msRequestFullscreen();
             }
         } else {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if ((document as any).webkitExitFullscreen) {
-                (document as any).webkitExitFullscreen();
-            } else if ((document as any).mozCancelFullScreen) {
-                (document as any).mozCancelFullScreen();
-            } else if ((document as any).msExitFullscreen) {
-                (document as any).msExitFullscreen();
+            if (doc.exitFullscreen) {
+                doc.exitFullscreen();
+            } else if (doc.webkitExitFullscreen) {
+                doc.webkitExitFullscreen();
+            } else if (doc.mozCancelFullScreen) {
+                doc.mozCancelFullScreen();
+            } else if (doc.msExitFullscreen) {
+                doc.msExitFullscreen();
             }
         }
     };

@@ -242,7 +242,7 @@ export async function createHighlightVideo(
     onProgress?: (step: string, progress: number, detail?: string) => void
 ): Promise<Blob> {
     const maxAttempts = 2;
-    let lastError: any = null;
+    let lastError: Error | unknown = null;
 
     // Record operation start time for tracking
     lastOperationTime = Date.now();
@@ -738,7 +738,7 @@ export async function concatenateSegments(
     onProgress?.('concatenating', 0, 'Preparing to join segments');
 
     const maxAttempts = 2;
-    let lastError: any = null;
+    let lastError: Error | unknown = null;
 
     // Record operation start time for tracking
     lastOperationTime = Date.now();

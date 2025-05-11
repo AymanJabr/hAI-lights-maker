@@ -4,6 +4,21 @@ import formidable, { Fields, Files } from 'formidable';
 import fs from 'fs';
 import os from 'os';
 import { Readable } from 'node:stream';
+import { IncomingMessage } from 'http';
+
+// Define interfaces for the mock request object required by formidable
+interface MockHeaders {
+    [key: string]: string;
+}
+
+interface MockSocket {
+    remoteAddress: string;
+}
+
+interface MockReadableWithFormidableProps extends Readable {
+    headers: MockHeaders;
+    socket: MockSocket;
+}
 
 const CONFIGURED_MAX_FILE_SIZE_BYTES = 1.5 * 1024 * 1024 * 1024; // 1.5 GiB
 const CONFIGURED_MAX_FILE_SIZE_GB = CONFIGURED_MAX_FILE_SIZE_BYTES / (1024 * 1024 * 1024);
@@ -44,7 +59,7 @@ function parseForm(
 
         // Create a mock Node.js IncomingMessage-like object for formidable.parse
         // It needs a .headers property and to be a Readable stream.
-        const formattedHeaders: Record<string, string> = {};
+        const formattedHeaders: MockHeaders = {};
         request.headers.forEach((value, key) => {
             formattedHeaders[key.toLowerCase()] = value;
         });
@@ -54,15 +69,16 @@ function parseForm(
         }
 
         // Convert the Web Stream to a Node.js Readable stream
-        const nodeReadable = Readable.fromWeb(request.body as any);
+        // @ts-expect-error - Type inconsistency between Next.js Request body and node:stream Readable.fromWeb
+        // This is necessary because the TypeScript types for ReadableStream in different contexts are incompatible
+        const nodeReadable = Readable.fromWeb(request.body);
 
-        // Assign headers to the stream object, as formidable.parse expects it on the req object
-        (nodeReadable as any).headers = formattedHeaders;
+        // Create a custom readable that meets formidable's requirements
+        const mockReadable = nodeReadable as MockReadableWithFormidableProps;
+        mockReadable.headers = formattedHeaders;
+        mockReadable.socket = { remoteAddress: 'mock' };
 
-        // Add a no-op .socket property if formidable checks for it (sometimes needed for IncomingMessage mocks)
-        (nodeReadable as any).socket = { remoteAddress: 'mock' };
-
-        form.parse(nodeReadable as any, (err, fields, files) => {
+        form.parse(mockReadable as unknown as IncomingMessage, (err, fields, files) => {
             if (err) {
                 console.error('Formidable parsing error:', err);
                 reject(err);
@@ -158,12 +174,12 @@ export async function POST(request: NextRequest) {
 
         // Check for formidable file size error
         // Formidable errors for file size (like code 1009) often include an httpCode property.
-        // @ts-expect-error - Accessing a potential custom property from formidable error
+        // @ts-expect-error - Accessing custom properties from formidable error object that aren't in the type definition
         if (error && typeof error === 'object' && (error.code === 1009 || error.httpCode === 413)) {
             return NextResponse.json(
                 {
                     error: `File exceeds the ${CONFIGURED_MAX_FILE_SIZE_GB}GB size limit.`,
-                    // @ts-expect-error
+                    // @ts-expect-error - Accessing message property from error object that may not have it in the type definition
                     details: error.message || 'Formidable file size limit exceeded'
                 },
                 { status: 413 } // Payload Too Large
