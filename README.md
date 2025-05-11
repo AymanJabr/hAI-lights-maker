@@ -19,6 +19,9 @@ HAI-Lights Maker is a web application that uses AI to analyze videos and create 
 - **Multiple Export Formats**: Generate videos optimized for different platforms (YouTube, TikTok, Instagram)
 - **Client-side Processing**: Video processing happens in the browser using WebAssembly
 - **Face Detection**: Identifies speaker close-ups as potential highlight moments
+- **Segment-based Workflow**: Process and review individual segments before combining them
+- **In-browser Video Player**: Feature-rich video player with custom controls
+- **Responsive UI**: Works across different devices and screen sizes
 
 ## Technologies Used
 
@@ -29,6 +32,7 @@ HAI-Lights Maker is a web application that uses AI to analyze videos and create 
 - TensorFlow.js and MediaPipe for face detection
 - OpenAI API for transcription and content analysis
 - Web Workers for performance-intensive tasks
+- Turbopack for faster development builds
 
 ## Getting Started
 
@@ -73,7 +77,9 @@ pnpm dev
 2. Upload a video file
 3. Select your highlight style and target platform
 4. Click "Generate Highlights" and wait for processing
-5. Preview and download your highlight reel
+5. Review and edit the suggested segments
+6. Approve segments to include in your final video
+7. Preview and download individual segments or combine them into a final highlight reel
 
 ## API Key Security
 
@@ -86,6 +92,31 @@ HAI-Lights Maker implements several security measures to protect your OpenAI API
 - **Server-side validation**: Each API request validates the API key again before proceeding.
 
 > **Note**: While we take steps to protect your API key, for production use, consider implementing more robust security measures including rate limiting, proper secret management, and proxy services.
+
+## Segment Processing Workflow
+
+The application follows a systematic process for creating video highlights:
+
+1. **Step 1: Video Upload and Analysis**
+   - Upload your video and adjust settings
+   - The app transcribes and analyzes the content
+
+2. **Step 2: Generate Individual Segments**
+   - AI identifies potential highlight segments
+   - Each segment is processed individually in sequence
+   - You can review and edit the suggested segments
+
+3. **Step 3: Review and Approval**
+   - Preview each segment in the built-in video player
+   - Edit segment timestamps if needed
+   - Approve segments to include in your final video
+
+4. **Step 4: Generate Final Output**
+   - After approving segments, you can download them individually
+   - Click the "Combine Segments Into Video" button to create a single highlight reel
+   - The combined video uses your selected format settings (YouTube, TikTok, Instagram)
+
+This approach separates resource-intensive tasks, preventing them from interfering with each other and providing a more reliable experience.
 
 ## Future Enhancements
 
@@ -104,21 +135,3 @@ MIT
 - [FFmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) for bringing video processing to the browser
 - [TensorFlow.js](https://www.tensorflow.org/js) and [MediaPipe](https://mediapipe.dev/) for the face detection models
 - [OpenAI](https://openai.com/) for their powerful API services
-
-## New Workflow for Segment Processing
-
-The application now follows a two-step process for creating video highlights:
-
-1. **Step 1: Generate Individual Segments**
-   - Upload your video and adjust settings
-   - The app will analyze the video and extract highlight segments
-   - Each segment is processed individually in sequence
-   - You can preview and download each segment separately
-
-2. **Step 2: (Optional) Combine Segments**
-   - After all segments are processed, you can combine them into a single video
-   - Click the "Combine Segments Into Video" button
-   - This process creates a new video with all segments joined together
-   - The combined video uses your selected format settings (YouTube, TikTok, etc.)
-
-This new approach separates resource-intensive tasks, preventing them from interfering with each other and providing a more reliable experience.
