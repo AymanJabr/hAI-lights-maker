@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, forwardRef, ForwardedRef } from 'react';
+import { useRef, useEffect, useState, forwardRef, ForwardedRef, useCallback } from 'react';
 import { VideoSegment } from '@/types';
 
 // Define browser-specific document interface extensions
@@ -49,7 +49,7 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     const videoRef = (ref as React.RefObject<HTMLVideoElement>) || localVideoRef;
 
     // Set the aspect ratio based on platform format
-    const getAspectRatioClass = () => {
+    const getAspectRatioClass = useCallback(() => {
         switch (platformFormat) {
             case 'youtube':
                 return 'aspect-video'; // 16:9
@@ -61,7 +61,7 @@ const VideoPlayer = forwardRef(function VideoPlayer(
             default:
                 return 'aspect-auto'; // Original aspect ratio
         }
-    };
+    }, [platformFormat]);
 
     useEffect(() => {
         const video = videoRef.current;

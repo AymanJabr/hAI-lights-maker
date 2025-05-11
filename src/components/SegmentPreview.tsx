@@ -337,7 +337,7 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
             // Remove this task from the queue if it hasn't started yet
             cancelTask(taskId.current);
         };
-    }, [segment, index, originalVideo, ready]);
+    }, [segment, segment.targetPlatform, index, originalVideo, ready, segmentUrl]);
 
     const formatTime = (seconds: number) => {
         const date = new Date(seconds * 1000);

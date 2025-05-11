@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { VideoSegment, VideoMetadata, TranscriptionResult } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 
@@ -261,8 +261,8 @@ export default function SegmentReviewScreen({
         }
     };
 
-    // Check if segments overlap or have other issues
-    const validateSegments = () => {
+    // Check if segments overlap or have other issues - wrapped in useCallback
+    const validateSegments = useCallback(() => {
         // Reset validation error
         setValidationError(null);
 
@@ -293,7 +293,7 @@ export default function SegmentReviewScreen({
         }
 
         return true;
-    };
+    }, [segments]);
 
     // Play the current segment from start to end
     const playCurrentSegment = () => {
@@ -308,7 +308,7 @@ export default function SegmentReviewScreen({
     // Run validation whenever segments change
     useMemo(() => {
         validateSegments();
-    }, [segments]);
+    }, [validateSegments]);
 
     const isValid = !validationError;
     const maxDuration = videoMetadata?.duration || 3600;
