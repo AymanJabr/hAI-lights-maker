@@ -27,9 +27,6 @@ export default function ResultsSection({
     // Track if all segments are ready
     const areSegmentsReady = useSegmentsCompletionStatus();
 
-    // Add state for segment markers toggle
-    const [showSegmentMarkers, setShowSegmentMarkers] = useState(false);
-
     return (
         <div className="w-full">
             <h2 className="text-2xl font-bold mb-6">Your Highlights</h2>
@@ -96,24 +93,7 @@ export default function ResultsSection({
                                     segments={processedVideo.segments}
                                     autoPlay={false}
                                     platformFormat={processedVideo.highlightConfig?.targetPlatform}
-                                    showSegmentMarkers={showSegmentMarkers}
                                 />
-                                <div className="mt-2 flex items-center">
-                                    <label htmlFor="show-segments" className="flex items-center cursor-pointer">
-                                        <div className="relative">
-                                            <input
-                                                id="show-segments"
-                                                type="checkbox"
-                                                className="sr-only"
-                                                checked={showSegmentMarkers}
-                                                onChange={() => setShowSegmentMarkers(prev => !prev)}
-                                            />
-                                            <div className={`block w-10 h-6 rounded-full ${showSegmentMarkers ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
-                                            <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition transform ${showSegmentMarkers ? 'translate-x-4' : ''}`}></div>
-                                        </div>
-                                        <div className="ml-3 text-sm text-gray-700">Show highlight segments in timeline</div>
-                                    </label>
-                                </div>
                                 <div className="mt-4 flex flex-wrap gap-2">
                                     {Object.entries(highlightUrls).map(([format, url]) => (
                                         <a

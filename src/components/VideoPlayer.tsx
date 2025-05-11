@@ -9,11 +9,10 @@ interface VideoPlayerProps {
     autoPlay?: boolean;
     id?: string;
     platformFormat?: 'youtube' | 'tiktok' | 'instagram' | 'original';
-    showSegmentMarkers?: boolean;
 }
 
 const VideoPlayer = forwardRef(function VideoPlayer(
-    { src, segments = [], onSegmentClick, onDirectInteraction, autoPlay = false, id, platformFormat = 'original', showSegmentMarkers = true }: VideoPlayerProps,
+    { src, segments = [], onSegmentClick, onDirectInteraction, autoPlay = false, id, platformFormat = 'original' }: VideoPlayerProps,
     ref: ForwardedRef<HTMLVideoElement>
 ) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -278,26 +277,6 @@ const VideoPlayer = forwardRef(function VideoPlayer(
                             className="h-full bg-blue-500 relative transition-all duration-100"
                             style={{ width: `${(currentTime / duration) * 100}%` }}
                         >
-                            {/* Render segment markers */}
-                            {showSegmentMarkers && segments.map((segment, index) => (
-                                <div
-                                    key={index}
-                                    className="absolute h-4 w-1 bg-yellow-300 top-1/2 -translate-y-1/2 rounded-sm cursor-pointer"
-                                    style={{
-                                        left: `${(segment.start / duration) * 100}%`,
-                                        width: `${((segment.end - segment.start) / duration) * 100}%`,
-                                        minWidth: '4px'
-                                    }}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        // Simply seek to start position without starting playback
-                                        videoRef.current!.currentTime = segment.start;
-                                        // Don't call onDirectInteraction here - this is segment interaction
-                                        onSegmentClick?.(segment);
-                                    }}
-                                    title={segment.description || `Segment ${index + 1}`}
-                                />
-                            ))}
                         </div>
                     </div>
 
