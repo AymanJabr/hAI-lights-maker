@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
             segments.sort((a, b) => a.start - b.start);
 
         } catch (err) {
-            console.error('Error parsing OpenAI response:', content);
+            console.error('Error parsing OpenAI response:', content, 'error: ', err);
             throw new Error('Failed to parse OpenAI response');
         }
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ApiKeyConfig as ApiKeyConfigType } from '@/types'
-import { storeApiKey, getApiKey, Provider } from '@/lib/utils/api-utils'
+import { storeApiKey, getApiKey } from '@/lib/utils/api-utils'
 
 // Import icons
 import { KeyRound, Eye, EyeOff } from 'lucide-react'

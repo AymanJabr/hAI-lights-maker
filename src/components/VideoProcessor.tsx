@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useOpenAI } from '@/hooks/useOpenAI';
 import { ProcessedVideo, HighlightConfig, VideoMetadata, ProgressState, TranscriptionResult } from '@/types';
@@ -22,7 +21,6 @@ export function useVideoProcessor({
     onProcessingComplete,
     onError
 }: VideoProcessorProps) {
-    const [segmentBlobs, setSegmentBlobs] = useState<Blob[]>([]);
     const { transcribeAudio, findHighlights, isLoading, error: openAIError } = useOpenAI({ apiKey });
 
     const processVideo = async () => {
@@ -182,8 +180,7 @@ export function useVideoProcessor({
             console.log(`Combining ${processedVideo.segments.length} segments`);
             console.log(`Target platform: ${processedVideo.highlightConfig?.targetPlatform || 'original'}`);
 
-            // First, collect all segment URLs from the video elements
-            const segmentUrls: string[] = [];
+            // First, collect all segment blobs from the video elements
             const videoElements = document.querySelectorAll('video[id^="segment-preview-"]');
 
             if (videoElements.length === 0) {
@@ -291,7 +288,6 @@ export function useVideoProcessor({
             });
 
             // Check if we have already processed segments
-            const segmentUrls: string[] = [];
             const videoElements = document.querySelectorAll('video[id^="segment-preview-"]');
 
             if (videoElements.length > 0 && videoElements.length === processedVideo.segments.length) {

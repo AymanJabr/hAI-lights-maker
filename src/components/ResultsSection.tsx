@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { ProcessedVideo, ProgressState, VideoSegment } from '@/types';
 import SegmentsGallery from './SegmentsGallery';
 import VideoPlayer from './VideoPlayer';

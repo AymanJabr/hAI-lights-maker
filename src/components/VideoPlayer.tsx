@@ -31,6 +31,21 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     // Use either the forwarded ref or the local ref
     const videoRef = (ref as React.RefObject<HTMLVideoElement>) || localVideoRef;
 
+    // Set the aspect ratio based on platform format
+    const getAspectRatioClass = () => {
+        switch (platformFormat) {
+            case 'youtube':
+                return 'aspect-video'; // 16:9
+            case 'tiktok':
+                return 'aspect-[9/16]'; // 9:16
+            case 'instagram':
+                return 'aspect-square'; // 1:1
+            case 'original':
+            default:
+                return 'aspect-auto'; // Original aspect ratio
+        }
+    };
+
     useEffect(() => {
         const video = videoRef.current;
         if (!video) return;
@@ -179,13 +194,6 @@ const VideoPlayer = forwardRef(function VideoPlayer(
         }
     };
 
-    const seekTo = (time: number) => {
-        const video = videoRef.current;
-        if (!video) return;
-
-        video.currentTime = time;
-    };
-
     const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
         const progressBar = progressBarRef.current;
         if (!progressBar || !videoRef.current) return;
@@ -211,21 +219,6 @@ const VideoPlayer = forwardRef(function VideoPlayer(
         const mm = date.getUTCMinutes();
         const ss = date.getUTCSeconds();
         return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
-    };
-
-    // Set the aspect ratio based on platform format
-    const getAspectRatioClass = () => {
-        switch (platformFormat) {
-            case 'youtube':
-                return 'aspect-video'; // 16:9
-            case 'tiktok':
-                return 'aspect-[9/16]'; // 9:16
-            case 'instagram':
-                return 'aspect-square'; // 1:1
-            case 'original':
-            default:
-                return 'aspect-auto'; // Original aspect ratio
-        }
     };
 
     return (

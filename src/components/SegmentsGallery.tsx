@@ -16,7 +16,7 @@ declare global {
 
 // Create a delay between when segments are displayed and when they start processing
 // This helps prevent resource contention with the main video processing
-let segmentsProcessingDelay = 1000; // Reduced to 1 second for better user experience
+const segmentsProcessingDelay = 1000; // Reduced to 1 second for better user experience
 
 export default function SegmentsGallery({ segments, originalVideo }: SegmentsGalleryProps) {
     const [processSegments, setProcessSegments] = useState(false);

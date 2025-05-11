@@ -25,7 +25,7 @@ export default function ProcessingLog({ isProcessing, latestMessage }: Processin
         const originalConsoleError = console.error;
 
         // Create a custom log handler
-        const logHandler = (message: any, type: LogEntry['type'] = 'info') => {
+        const logHandler = (message: unknown, type: LogEntry['type'] = 'info') => {
             let formattedMessage = '';
 
             // Format the message based on type
@@ -33,7 +33,7 @@ export default function ProcessingLog({ isProcessing, latestMessage }: Processin
                 try {
                     formattedMessage = JSON.stringify(message);
                 } catch (e) {
-                    formattedMessage = String(message);
+                    formattedMessage = String(message + " " + e);
                 }
             } else {
                 formattedMessage = String(message);
@@ -58,7 +58,7 @@ export default function ProcessingLog({ isProcessing, latestMessage }: Processin
         };
 
         // Override console.log
-        console.log = function (...args: any[]) {
+        console.log = function (...args: unknown[]) {
             originalConsoleLog.apply(console, args);
             if (args.length > 0) {
                 logHandler(args[0]);
@@ -66,7 +66,7 @@ export default function ProcessingLog({ isProcessing, latestMessage }: Processin
         };
 
         // Override console.error
-        console.error = function (...args: any[]) {
+        console.error = function (...args: unknown[]) {
             originalConsoleError.apply(console, args);
             if (args.length > 0) {
                 logHandler(args[0], 'error');

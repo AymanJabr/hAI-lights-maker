@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import formidable, { File as FormidableFile, Fields, Files } from 'formidable';
+import formidable, { Fields, Files } from 'formidable';
 import fs from 'fs';
 import os from 'os';
 import { Readable } from 'node:stream';
@@ -158,12 +158,12 @@ export async function POST(request: NextRequest) {
 
         // Check for formidable file size error
         // Formidable errors for file size (like code 1009) often include an httpCode property.
-        // @ts-ignore - Accessing a potential custom property from formidable error
+        // @ts-expect-error - Accessing a potential custom property from formidable error
         if (error && typeof error === 'object' && (error.code === 1009 || error.httpCode === 413)) {
             return NextResponse.json(
                 {
                     error: `File exceeds the ${CONFIGURED_MAX_FILE_SIZE_GB}GB size limit.`,
-                    // @ts-ignore
+                    // @ts-expect-error
                     details: error.message || 'Formidable file size limit exceeded'
                 },
                 { status: 413 } // Payload Too Large

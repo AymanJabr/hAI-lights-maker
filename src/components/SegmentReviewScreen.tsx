@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { VideoSegment, VideoMetadata, ProgressState, TranscriptionResult } from '@/types';
+import { VideoSegment, VideoMetadata, TranscriptionResult } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
 
 interface SegmentReviewScreenProps {

@@ -16,7 +16,7 @@ export default function HighlightConfig({ onChange, initialConfig, disabled = fa
         }
     );
 
-    const handleChange = (key: keyof HighlightConfigType, value: any) => {
+    const handleChange = (key: keyof HighlightConfigType, value: string) => {
         const updatedConfig = { ...config, [key]: value };
         setConfig(updatedConfig);
         onChange(updatedConfig);

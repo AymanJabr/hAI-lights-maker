@@ -2,6 +2,11 @@
  * Utility functions for device capability detection
  */
 
+// Extend the Navigator interface to include deviceMemory
+interface NavigatorWithMemory extends Navigator {
+    deviceMemory?: number;
+}
+
 /**
  * Calculate maximum video size based on device capabilities
  * @returns Maximum recommended video size in bytes
@@ -17,8 +22,8 @@ export function getMaxVideoSize(): number {
 
     // Adjust based on available memory (if supported)
     if ('deviceMemory' in navigator) {
-        // TypeScript may not know about this API
-        const memoryGB = (navigator as any).deviceMemory;
+        const nav = navigator as NavigatorWithMemory;
+        const memoryGB = nav.deviceMemory || 0;
         if (memoryGB >= 8) maxSizeMB = Math.max(maxSizeMB, 600);
         else if (memoryGB >= 4) maxSizeMB = Math.max(maxSizeMB, 300);
     }

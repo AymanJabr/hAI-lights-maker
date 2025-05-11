@@ -63,7 +63,6 @@ type Task = {
 const taskQueue: Task[] = [];
 let isProcessing = false;
 let nextTaskId = 1;
-let activeTaskId: number | null = null;
 
 // Process one task at a time with retries
 async function processNextTask() {
@@ -77,7 +76,6 @@ async function processNextTask() {
     const currentTask = taskQueue.shift();
 
     if (currentTask) {
-        activeTaskId = currentTask.id;
         console.log(`Processing task ID: ${currentTask.id}${currentTask.priority ? ` (priority: ${currentTask.priority})` : ''}`);
 
         let success = false;
@@ -110,7 +108,6 @@ async function processNextTask() {
         }
 
         isProcessing = false;
-        activeTaskId = null;
         // Continue with next task with a small delay
         setTimeout(processNextTask, 100); // Small delay to prevent CPU hogging
     } else {
@@ -340,7 +337,7 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
             // Remove this task from the queue if it hasn't started yet
             cancelTask(taskId.current);
         };
-    }, [segment, segment.targetPlatform, index, originalVideo, ready]);
+    }, [segment, index, originalVideo, ready]);
 
     const formatTime = (seconds: number) => {
         const date = new Date(seconds * 1000);

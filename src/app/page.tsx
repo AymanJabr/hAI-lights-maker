@@ -45,7 +45,6 @@ export default function Home() {
     });
     const [processedVideo, setProcessedVideo] = useState<ProcessedVideo | null>(null);
     const [suggestedSegments, setSuggestedSegments] = useState<VideoSegment[]>([]);
-    const [approvedSegments, setApprovedSegments] = useState<VideoSegment[]>([]);
     const [highlightUrls, setHighlightUrls] = useState<Record<string, string>>({});
     const [transcript, setTranscript] = useState<string>('');
     const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionResult | undefined>(undefined);
@@ -115,8 +114,6 @@ export default function Home() {
             targetPlatform: highlightConfig.targetPlatform
         }));
 
-        setApprovedSegments(segmentsWithPlatform);
-
         // Create the processed video object using the approved segments
         if (videoFile) {
             const processedVideoWithApprovedSegments: ProcessedVideo = {
@@ -172,14 +169,9 @@ export default function Home() {
         setVideoUrl('');
         setProcessedVideo(null);
         setSuggestedSegments([]);
-        setApprovedSegments([]);
         setHighlightUrls({});
         setProgress({ status: 'idle', progress: 0 });
         setCurrentStep('upload');
-    };
-
-    const handleBackToConfig = () => {
-        setCurrentStep('configure');
     };
 
     const renderMainContent = () => {

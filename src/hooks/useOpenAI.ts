@@ -183,11 +183,9 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
             }
         } catch (err) {
             let errorMessage: string;
-            let errorStatus: number | undefined = undefined;
 
             if (err instanceof ApiError) {
                 errorMessage = err.message;
-                errorStatus = err.status;
             } else if (err instanceof Error) {
                 errorMessage = err.message;
             } else {
@@ -224,7 +222,7 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
         if (!response.ok) {
             let errorText = '';
             let isFileSizeError = false;
-            let responseStatus = response.status; // Store status before trying to parse body
+            const responseStatus = response.status; // Store status before trying to parse body
             try {
                 const errorJson = await response.json();
                 if (responseStatus === 413 && errorJson.error) {
@@ -235,6 +233,7 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                 }
             } catch (e) {
                 errorText = await response.text(); // Fallback if .json() fails
+                errorText = errorText + " " + e;
             }
             console.error(`Transcription API error (${responseStatus}):`, errorText);
 

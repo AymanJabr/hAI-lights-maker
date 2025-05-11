@@ -44,7 +44,7 @@ export default function VideoSizeWarningModal({
 
                 <div className="mb-6 text-gray-700">
                     <p className="mb-3">
-                        The video you've selected is <span className="font-bold">{formattedFileSize}</span>, which exceeds the
+                        The video you&apos;ve selected is <span className="font-bold">{formattedFileSize}</span>, which exceeds the
                         recommended maximum of <span className="font-bold">{formattedMaxSize}</span> for your device.
                     </p>
                     <p className="mb-3">

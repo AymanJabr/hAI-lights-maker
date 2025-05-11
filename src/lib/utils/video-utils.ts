@@ -1,7 +1,6 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import { VideoMetadata, VideoSegment } from '@/types';
-import { toBlobURL } from '@ffmpeg/util';
 
 // Define a global type extension for the window object
 declare global {
@@ -64,7 +63,7 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
 
             console.log('FFmpeg loaded successfully');
             ffmpeg = instance;
-            lastUsageTime = Date.now();
+            lastUsageTime = currentTime;
             lastOperationTime = Date.now();
             usageCount = 1;
             return instance;
@@ -623,6 +622,29 @@ export function calculateAdaptiveDimensions(
     }
 }
 
+/**
+ * Get the aspect ratio for a specific platform
+ * @param platform Target platform
+ * @returns Aspect ratio as number, or null for original ratio
+ */
+function getAspectRatioForPlatform(platform: string): number | null {
+    switch (platform) {
+        case 'youtube':
+            console.log('Processing YouTube format (16:9) - video will be stretched to fill');
+            return 16 / 9;
+        case 'tiktok':
+            console.log('Processing TikTok/Reels format (9:16) - video will be stretched to fill');
+            return 9 / 16;
+        case 'instagram':
+            console.log('Processing Instagram format (1:1) - video will be stretched to fill');
+            return 1 / 1;
+        case 'original':
+        default:
+            console.log('Processing with original dimensions (no stretching)');
+            return null;
+    }
+}
+
 // Function to create platform-specific output formats
 export async function createPlatformSpecificVideos(
     file: File,
@@ -652,33 +674,13 @@ export async function createPlatformSpecificVideos(
 
         for (let i = 0; i < totalPlatforms; i++) {
             const platform = platforms[i];
+            const aspectRatio = getAspectRatioForPlatform(platform);
+
             onProgress?.('platform_specific', (i / totalPlatforms) * 100,
                 `Creating ${platform} format (${i + 1}/${totalPlatforms})`);
 
-            let dimensions;
-            let aspectRatio: number | null = null;
-
-            switch (platform) {
-                case 'youtube':
-                    aspectRatio = 16 / 9;
-                    console.log('Processing YouTube format (16:9) - video will be stretched to fill');
-                    break;
-                case 'tiktok':
-                    aspectRatio = 9 / 16;
-                    console.log('Processing TikTok/Reels format (9:16) - video will be stretched to fill');
-                    break;
-                case 'instagram':
-                    aspectRatio = 1 / 1;
-                    console.log('Processing Instagram format (1:1) - video will be stretched to fill');
-                    break;
-                case 'original':
-                default:
-                    aspectRatio = null;
-                    console.log('Processing with original dimensions (no stretching)');
-                    break;
-            }
-
-            dimensions = calculateAdaptiveDimensions(
+            // Calculate target dimensions based on platform
+            const dimensions = calculateAdaptiveDimensions(
                 videoMetadata.width,
                 videoMetadata.height,
                 aspectRatio
