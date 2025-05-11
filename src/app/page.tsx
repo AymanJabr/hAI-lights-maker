@@ -38,7 +38,6 @@ export default function Home() {
     const [highlightConfig, setHighlightConfig] = useState<HighlightConfigType>({
         mode: 'highlights',
         targetPlatform: 'youtube',
-        maxDuration: 60,
     });
     const [progress, setProgress] = useState<ProgressState>({
         status: 'idle',

@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
         const openai = new OpenAI({ apiKey });
 
         // Parse request body
-        const { transcript, prompt, maxDuration, videoDuration } = await request.json();
+        const { transcript, prompt, videoDuration } = await request.json();
 
         if (!transcript) {
             return NextResponse.json(
@@ -45,13 +45,12 @@ export async function POST(request: NextRequest) {
       - description: brief description of why this segment is interesting
       
       Rules:
-      1. Total duration of all segments should not exceed ${maxDuration} seconds
-      2. Each segment should be between 3-20 seconds long
-      3. Choose diverse segments from different parts of the video
-      4. The full video duration is ${videoDuration} seconds
-      5. Focus on complete thoughts or actions
-      6. Don't include incomplete sentences
-      7. Return between 3-10 segments depending on video length and content
+      1. Create as many segments as necessary to capture all important moments
+      2. Choose diverse segments from different parts of the video
+      3. The full video duration is ${videoDuration} seconds
+      4. Focus on complete thoughts or actions
+      5. Don't include incomplete sentences
+      6. Make sure each segment contains meaningful and coherent content
     `;
 
         // Call OpenAI's chat completion API

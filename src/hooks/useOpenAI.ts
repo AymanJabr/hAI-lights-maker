@@ -283,7 +283,6 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
                 body: JSON.stringify({
                     transcript,
                     prompt: promptMode,
-                    maxDuration: config.maxDuration || Math.min(60, videoDuration * 0.2), // Default to 20% of video or 60 seconds
                     videoDuration
                 }),
             });

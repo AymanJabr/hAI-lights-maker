@@ -12,7 +12,6 @@ export default function HighlightConfig({ onChange, initialConfig, disabled = fa
         initialConfig || {
             mode: 'highlights',
             targetPlatform: 'youtube',
-            maxDuration: 60,
             customPrompt: '',
         }
     );
@@ -80,28 +79,6 @@ export default function HighlightConfig({ onChange, initialConfig, disabled = fa
                     />
                 </div>
             )}
-
-            <div>
-                <label htmlFor="maxDuration" className="block text-sm font-medium text-gray-700 mb-1">
-                    Maximum Duration (seconds)
-                </label>
-                <input
-                    id="maxDuration"
-                    type="range"
-                    min="10"
-                    max="180"
-                    step="5"
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    value={config.maxDuration || 60}
-                    onChange={(e) => handleChange('maxDuration', parseInt(e.target.value))}
-                    disabled={disabled}
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>10s</span>
-                    <span>{config.maxDuration || 60}s</span>
-                    <span>180s</span>
-                </div>
-            </div>
 
             <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
