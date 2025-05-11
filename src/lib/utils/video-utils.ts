@@ -344,9 +344,9 @@ export async function createHighlightVideo(
 
                     // Apply resize if target dimensions are provided
                     if (targetDimensions) {
-                        console.log(`Applying target dimensions: ${targetDimensions.width}x${targetDimensions.height} with stretching to fill aspect ratio`);
+                        console.log(`Applying target dimensions: ${targetDimensions.width}x${targetDimensions.height} with center crop`);
                         extractCommand = extractCommand.concat([
-                            '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
+                            '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}:force_original_aspect_ratio=increase,crop=${targetDimensions.width}:${targetDimensions.height}`,
                             '-c:v', 'libx264',
                             '-crf', '23',
                             '-preset', 'medium',
@@ -460,9 +460,9 @@ export async function createHighlightVideo(
             // Apply resize if target dimensions are provided
             if (targetDimensions) {
                 onProgress?.('concatenating', 65, `Resizing to ${targetDimensions.width}x${targetDimensions.height}`);
-                console.log(`Applying target dimensions to concat output: ${targetDimensions.width}x${targetDimensions.height} with stretching to fill aspect ratio`);
+                console.log(`Applying target dimensions to concat output: ${targetDimensions.width}x${targetDimensions.height} with center crop`);
                 command = command.concat([
-                    '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
+                    '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}:force_original_aspect_ratio=increase,crop=${targetDimensions.width}:${targetDimensions.height}`,
                     '-c:v', 'libx264',
                     '-crf', '23',
                     '-preset', 'medium',
