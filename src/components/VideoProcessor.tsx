@@ -178,8 +178,9 @@ export function useVideoProcessor({
                 message: 'Preparing to combine segments...'
             });
 
-            console.log('--- Starting segment combination using FFmpeg ---');
+            console.log('--- Starting direct segment combination (without re-encoding) ---');
             console.log(`Combining ${processedVideo.segments.length} segments`);
+            console.log(`Target platform: ${processedVideo.highlightConfig?.targetPlatform || 'original'}`);
 
             // First, collect all segment URLs from the video elements
             const segmentUrls: string[] = [];
@@ -189,124 +190,70 @@ export function useVideoProcessor({
                 throw new Error('No segment videos found. Please ensure all segments are processed first.');
             }
 
+            const segmentBlobs: Blob[] = [];
+
             for (let i = 0; i < videoElements.length; i++) {
+                onProgress({
+                    status: 'processing',
+                    progress: 10 + ((i + 1) / videoElements.length * 30),
+                    message: `Collecting segment ${i + 1}/${videoElements.length}...`
+                });
+
                 const video = videoElements[i] as HTMLVideoElement;
                 if (video && video.src) {
-                    segmentUrls.push(video.src);
-                    console.log(`Found segment URL ${i + 1}: ${video.src}`);
+                    try {
+                        const response = await fetch(video.src);
+                        const blob = await response.blob();
+                        segmentBlobs.push(blob);
+                        console.log(`Collected segment ${i + 1} blob: ${blob.size} bytes`);
+                    } catch (error) {
+                        console.error(`Error collecting segment ${i + 1}:`, error);
+                        throw new Error(`Failed to collect segment ${i + 1}`);
+                    }
                 }
             }
 
-            if (segmentUrls.length === 0) {
+            if (segmentBlobs.length === 0) {
                 throw new Error('Could not find any processed segment videos.');
             }
 
             onProgress({
                 status: 'processing',
-                progress: 20,
-                message: `Found ${segmentUrls.length} segments to combine`
+                progress: 40,
+                message: `Found ${segmentBlobs.length} processed segments to combine`
             });
 
-            // Import FFmpeg dynamically
-            const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-            const { fetchFile } = await import('@ffmpeg/util');
+            // Import the concatenateSegmentBlobs function
+            const { concatenateSegmentBlobs } = await import('@/lib/utils/video-utils');
 
-            // Create a new FFmpeg instance for combining
-            const ffmpeg = new FFmpeg();
-            console.log('Loading FFmpeg for segment combination');
-
+            // Fast concatenation without re-encoding
             onProgress({
                 status: 'processing',
-                progress: 30,
-                message: 'Loading FFmpeg...'
+                progress: 50,
+                message: 'Fast combining segments without re-encoding...'
             });
 
-            await ffmpeg.load();
-            console.log('FFmpeg loaded successfully');
-
-            // Download each segment and add to FFmpeg
-            for (let i = 0; i < segmentUrls.length; i++) {
-                onProgress({
-                    status: 'processing',
-                    progress: 30 + ((i + 1) / segmentUrls.length * 40),
-                    message: `Processing segment ${i + 1}/${segmentUrls.length}...`
-                });
-
-                try {
-                    // Fetch the segment data
-                    const response = await fetch(segmentUrls[i]);
-                    const segmentData = await response.arrayBuffer();
-
-                    const segmentFileName = `segment-${i}.mp4`;
-                    console.log(`Writing segment ${i + 1} to FFmpeg (${segmentData.byteLength} bytes)`);
-
-                    // Write segment to FFmpeg filesystem
-                    await ffmpeg.writeFile(segmentFileName, new Uint8Array(segmentData));
-                } catch (error) {
-                    console.error(`Error processing segment ${i + 1}:`, error);
-                    throw new Error(`Failed to process segment ${i + 1}`);
+            const combinedBlob = await concatenateSegmentBlobs(
+                segmentBlobs,
+                'mp4',
+                (step, progress, detail) => {
+                    onProgress({
+                        status: 'processing',
+                        progress: 50 + (progress * 40), // 50-90% range
+                        message: detail || `Combining (${step})`
+                    });
                 }
-            }
+            );
 
-            // Create concat file content
-            let concatContent = '';
-            for (let i = 0; i < segmentUrls.length; i++) {
-                concatContent += `file segment-${i}.mp4\n`;
-            }
+            console.log(`Combined video created: ${combinedBlob.size} bytes`);
 
-            console.log('Creating concat file with content:', concatContent);
-            await ffmpeg.writeFile('concat.txt', new TextEncoder().encode(concatContent));
-
-            // Perform the concatenation
-            onProgress({
-                status: 'processing',
-                progress: 75,
-                message: 'Joining segments without transcoding...'
-            });
-
-            // Use copy codec to avoid transcoding
-            console.log('Running FFmpeg concat command');
-            await ffmpeg.exec([
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', 'concat.txt',
-                '-c', 'copy',
-                'output.mp4'
-            ]);
-
-            console.log('Successfully concatenated segments');
-
-            // Read the output file
-            onProgress({
-                status: 'processing',
-                progress: 90,
-                message: 'Creating final video file...'
-            });
-
-            const outputData = await ffmpeg.readFile('output.mp4');
-            if (!outputData) {
-                throw new Error('Failed to read combined output file');
-            }
-
-            // Create output blob
-            const combinedBlob = new Blob([outputData], { type: 'video/mp4' });
-            console.log(`Created combined video, size: ${combinedBlob.size} bytes`);
-
-            // Create URL
+            // Create URL for the combined video
             const combinedUrl = URL.createObjectURL(combinedBlob);
             console.log(`Created URL for combined video: ${combinedUrl}`);
 
             // Store for recovery
             if (typeof window !== 'undefined') {
                 window._lastCreatedVideoBlob = combinedBlob;
-            }
-
-            // Release FFmpeg resources
-            try {
-                await ffmpeg.terminate();
-                console.log('Released FFmpeg resources');
-            } catch (error) {
-                console.warn('Error releasing FFmpeg resources:', error);
             }
 
             // Complete the process
@@ -330,9 +277,149 @@ export function useVideoProcessor({
         }
     };
 
+    const createFormatSpecificVideos = async (processedVideo: ProcessedVideo) => {
+        if (!videoFile || !processedVideo?.segments || !videoMetadata) {
+            console.error('Missing required data for creating format-specific videos');
+            return null;
+        }
+
+        try {
+            onProgress({
+                status: 'processing',
+                progress: 10,
+                message: 'Checking for existing processed segments...'
+            });
+
+            // Check if we have already processed segments
+            const segmentUrls: string[] = [];
+            const videoElements = document.querySelectorAll('video[id^="segment-preview-"]');
+
+            if (videoElements.length > 0 && videoElements.length === processedVideo.segments.length) {
+                console.log('Found existing processed segments, using them for faster processing');
+
+                // Import the video utils
+                const { concatenateSegmentBlobs } = await import('@/lib/utils/video-utils');
+
+                // Collect segment blobs
+                const segmentBlobs: Blob[] = [];
+
+                for (let i = 0; i < videoElements.length; i++) {
+                    onProgress({
+                        status: 'processing',
+                        progress: 10 + ((i + 1) / videoElements.length * 20),
+                        message: `Collecting segment ${i + 1}/${videoElements.length}...`
+                    });
+
+                    const video = videoElements[i] as HTMLVideoElement;
+                    if (video && video.src) {
+                        try {
+                            const response = await fetch(video.src);
+                            const blob = await response.blob();
+                            segmentBlobs.push(blob);
+                            console.log(`Collected segment ${i + 1} blob: ${blob.size} bytes`);
+                        } catch (error) {
+                            console.error(`Error collecting segment ${i + 1}:`, error);
+                            throw new Error(`Failed to collect segment ${i + 1}`);
+                        }
+                    }
+                }
+
+                if (segmentBlobs.length === processedVideo.segments.length) {
+                    console.log(`All ${segmentBlobs.length} segments collected, combining directly`);
+
+                    // Apply target platform to all segments for consistency
+                    processedVideo.segments = processedVideo.segments.map(segment => ({
+                        ...segment,
+                        targetPlatform: processedVideo.highlightConfig?.targetPlatform
+                    }));
+
+                    // Fast concatenation without re-encoding
+                    onProgress({
+                        status: 'processing',
+                        progress: 40,
+                        message: 'Fast combining segments without re-encoding...'
+                    });
+
+                    const combinedBlob = await concatenateSegmentBlobs(
+                        segmentBlobs,
+                        'mp4',
+                        (step, progress, detail) => {
+                            onProgress({
+                                status: 'processing',
+                                progress: 40 + (progress * 0.5),
+                                message: detail || `Combining (${step})`
+                            });
+                        }
+                    );
+
+                    console.log(`Combined video created: ${combinedBlob.size} bytes`);
+
+                    onProgress({
+                        status: 'completed',
+                        progress: 100,
+                        message: 'Fast video creation complete!'
+                    });
+
+                    return { [processedVideo.highlightConfig.targetPlatform]: combinedBlob };
+                }
+            }
+
+            // If we get here, we need to use the original approach
+            console.log('Using standard approach to create videos (slower)');
+            onProgress({
+                status: 'processing',
+                progress: 30,
+                message: 'Preparing to create videos in target format...'
+            });
+
+            // Import the video utils dynamically
+            const { createPlatformSpecificVideos } = await import('@/lib/utils/video-utils');
+
+            // Apply the target platform to segments if not already set
+            const segmentsWithPlatform = processedVideo.segments.map(segment => ({
+                ...segment,
+                targetPlatform: processedVideo.highlightConfig?.targetPlatform || 'original'
+            }));
+
+            // Create the progress callback
+            const progressCallback = (step: string, progress: number, detail?: string) => {
+                onProgress({
+                    status: 'processing',
+                    progress: 30 + (progress * 0.7),
+                    message: detail || `Creating videos (${step})`
+                });
+            };
+
+            // Call the platform-specific video creation function
+            const outputs = await createPlatformSpecificVideos(
+                videoFile,
+                segmentsWithPlatform,
+                videoMetadata,
+                progressCallback
+            );
+
+            onProgress({
+                status: 'completed',
+                progress: 100,
+                message: 'Format-specific videos created successfully'
+            });
+
+            return outputs;
+        } catch (error) {
+            console.error('Error creating format-specific videos:', error);
+            onProgress({
+                status: 'error',
+                progress: 0,
+                message: `Failed to create videos: ${error instanceof Error ? error.message : String(error)}`
+            });
+            throw error;
+        }
+    };
+
     return {
         processVideo,
         combineSegments,
+        createFormatSpecificVideos,
         isLoading,
         openAIError
     };

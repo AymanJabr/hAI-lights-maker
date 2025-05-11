@@ -344,6 +344,7 @@ export async function createHighlightVideo(
 
                     // Apply resize if target dimensions are provided
                     if (targetDimensions) {
+                        console.log(`Applying target dimensions: ${targetDimensions.width}x${targetDimensions.height} with stretching to fill aspect ratio`);
                         extractCommand = extractCommand.concat([
                             '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
                             '-c:v', 'libx264',
@@ -352,6 +353,7 @@ export async function createHighlightVideo(
                             '-c:a', 'aac'
                         ]);
                     } else {
+                        console.log('No target dimensions specified, using original dimensions');
                         // Use re-encoding even without resizing for accurate cuts
                         extractCommand = extractCommand.concat([
                             '-c:v', 'libx264',
@@ -458,6 +460,7 @@ export async function createHighlightVideo(
             // Apply resize if target dimensions are provided
             if (targetDimensions) {
                 onProgress?.('concatenating', 65, `Resizing to ${targetDimensions.width}x${targetDimensions.height}`);
+                console.log(`Applying target dimensions to concat output: ${targetDimensions.width}x${targetDimensions.height} with stretching to fill aspect ratio`);
                 command = command.concat([
                     '-vf', `scale=${targetDimensions.width}:${targetDimensions.height}`,
                     '-c:v', 'libx264',
@@ -466,6 +469,7 @@ export async function createHighlightVideo(
                     '-c:a', 'aac'
                 ]);
             } else {
+                console.log('No target dimensions for concat, using original dimensions');
                 // Re-encode with good quality settings to ensure consistency between segments
                 command = command.concat([
                     '-c:v', 'libx264',
@@ -566,15 +570,84 @@ export async function createHighlightVideo(
     throw lastError || new Error('Failed to process video after multiple attempts');
 }
 
+// Function to calculate dimensions based on target aspect ratio without preserving the original aspect ratio
+// This is used to adapt videos to different platform formats (YouTube, TikTok, Instagram)
+// by stretching to fit the target aspect ratio
+// - originalWidth/Height: The original video dimensions
+// - targetAspectRatio: The desired aspect ratio (e.g., 16/9 for YouTube, 9/16 for TikTok, 1/1 for Instagram)
+//                      or null to preserve original dimensions
+export function calculateAdaptiveDimensions(
+    originalWidth: number,
+    originalHeight: number,
+    targetAspectRatio: number | null
+): { width: number, height: number } {
+    // If targetAspectRatio is null, return original dimensions
+    if (targetAspectRatio === null) {
+        return { width: originalWidth, height: originalHeight };
+    }
+
+    // For specific standard formats, use exact dimensions
+    // This ensures consistent output size regardless of input
+    if (targetAspectRatio === 16 / 9) {
+        // YouTube - standard 1080p
+        return { width: 1920, height: 1080 };
+    } else if (targetAspectRatio === 9 / 16) {
+        // TikTok/Reels - standard vertical 1080p
+        return { width: 1080, height: 1920 };
+    } else if (Math.abs(targetAspectRatio - 1) < 0.01) {
+        // Instagram - standard 1:1 square
+        return { width: 1080, height: 1080 };
+    }
+
+    // For non-standard aspect ratios, calculate adaptive dimensions
+    // that preserve the maximum quality
+    const originalAspectRatio = originalWidth / originalHeight;
+
+    // If targetAspectRatio is close to originalAspectRatio, return original dimensions
+    const aspectRatioDifference = Math.abs(originalAspectRatio - targetAspectRatio);
+    if (aspectRatioDifference < 0.01) { // Small threshold for floating point comparison
+        return { width: originalWidth, height: originalHeight };
+    }
+
+    // Determine if we should preserve width or height based on which gives better quality
+    if (originalAspectRatio > targetAspectRatio) {
+        // Original is wider than target - fit by height to avoid losing height resolution
+        const newHeight = originalHeight;
+        const newWidth = Math.round(newHeight * targetAspectRatio);
+        return { width: newWidth, height: newHeight };
+    } else {
+        // Original is taller than target - fit by width to avoid losing width resolution
+        const newWidth = originalWidth;
+        const newHeight = Math.round(newWidth / targetAspectRatio);
+        return { width: newWidth, height: newHeight };
+    }
+}
+
 // Function to create platform-specific output formats
 export async function createPlatformSpecificVideos(
     file: File,
     segments: VideoSegment[],
+    videoMetadata: VideoMetadata,
     onProgress?: (step: string, progress: number, detail?: string) => void
 ): Promise<Record<string, Blob>> {
     try {
         const outputs: Record<string, Blob> = {};
-        const platforms = ['youtube', 'tiktok', 'instagram'];
+        let platforms: string[];
+
+        // Determine which platforms to process based on the target platform in highlight config
+        // This would be passed from the component that calls this function
+        const targetPlatform = segments[0]?.targetPlatform || 'original';
+        console.log(`Creating videos for platform: ${targetPlatform}`);
+        console.log(`Original video dimensions: ${videoMetadata.width}x${videoMetadata.height}`);
+
+        if (targetPlatform === 'original') {
+            platforms = ['original'];
+            console.log('Using original format only');
+        } else {
+            platforms = [targetPlatform];
+            console.log(`Using specific platform format: ${targetPlatform}`);
+        }
+
         const totalPlatforms = platforms.length;
 
         for (let i = 0; i < totalPlatforms; i++) {
@@ -583,17 +656,36 @@ export async function createPlatformSpecificVideos(
                 `Creating ${platform} format (${i + 1}/${totalPlatforms})`);
 
             let dimensions;
+            let aspectRatio: number | null = null;
+
             switch (platform) {
                 case 'youtube':
-                    dimensions = { width: 1920, height: 1080 }; // 16:9
+                    aspectRatio = 16 / 9;
+                    console.log('Processing YouTube format (16:9) - video will be stretched to fill');
                     break;
                 case 'tiktok':
-                    dimensions = { width: 1080, height: 1920 }; // 9:16
+                    aspectRatio = 9 / 16;
+                    console.log('Processing TikTok/Reels format (9:16) - video will be stretched to fill');
                     break;
                 case 'instagram':
-                    dimensions = { width: 1080, height: 1080 }; // 1:1
+                    aspectRatio = 1 / 1;
+                    console.log('Processing Instagram format (1:1) - video will be stretched to fill');
+                    break;
+                case 'original':
+                default:
+                    aspectRatio = null;
+                    console.log('Processing with original dimensions (no stretching)');
                     break;
             }
+
+            dimensions = calculateAdaptiveDimensions(
+                videoMetadata.width,
+                videoMetadata.height,
+                aspectRatio
+            );
+
+            console.log(`Platform ${platform}: Using dimensions ${dimensions.width}x${dimensions.height}`);
+            console.log(`Segments have targetPlatform set: ${segments.map(s => s.targetPlatform || 'none').join(', ')}`);
 
             // For each platform processing, we adapt the progress to be within the current platform's range
             const platformProgressCallback = (step: string, progress: number, detail?: string) => {
@@ -605,6 +697,7 @@ export async function createPlatformSpecificVideos(
 
             try {
                 console.log(`Starting to create ${platform} format video...`);
+                console.log(`Target dimensions: ${dimensions.width}x${dimensions.height}`);
                 outputs[platform] = await createHighlightVideo(
                     file,
                     segments,
@@ -756,4 +849,101 @@ export async function concatenateSegments(
     // If we reach here, all attempts failed
     console.error(`All ${maxAttempts} attempts failed in concatenateSegments`);
     throw lastError || new Error('Failed to concatenate segments after multiple attempts');
-} 
+}
+
+/**
+ * Concatenates multiple segment blobs directly without re-encoding
+ * @param segmentBlobs Array of Blob objects representing video segments
+ * @param outputFormat Output format (defaults to mp4)
+ * @param progressCallback Optional callback for progress updates
+ * @returns A Blob representing the concatenated video
+ */
+export const concatenateSegmentBlobs = async (
+    segmentBlobs: Blob[],
+    outputFormat: string = 'mp4',
+    progressCallback?: (step: string, progress: number, detail?: string) => void
+): Promise<Blob> => {
+    if (!segmentBlobs || segmentBlobs.length === 0) {
+        throw new Error('No segment blobs provided for concatenation');
+    }
+
+    console.log(`Concatenating ${segmentBlobs.length} segment blobs directly (fast method)`);
+    progressCallback?.('init', 0, 'Initializing FFmpeg for fast concatenation');
+
+    // If there's only one segment, just return it
+    if (segmentBlobs.length === 1) {
+        console.log('Only one segment, returning directly');
+        progressCallback?.('complete', 1, 'Single segment, no concatenation needed');
+        return segmentBlobs[0];
+    }
+
+    try {
+        // Get FFmpeg instance
+        const ffmpeg = await loadFFmpeg();
+        progressCallback?.('load', 0.1, 'FFmpeg loaded');
+
+        // Write each segment to FFmpeg filesystem
+        const segmentFiles: string[] = [];
+
+        for (let i = 0; i < segmentBlobs.length; i++) {
+            const segmentName = `segment_${i}.mp4`;
+            await ffmpeg.writeFile(segmentName, new Uint8Array(await segmentBlobs[i].arrayBuffer()));
+            segmentFiles.push(segmentName);
+            progressCallback?.('writing', 0.1 + (i / segmentBlobs.length * 0.3), `Writing segment ${i + 1}/${segmentBlobs.length}`);
+        }
+
+        // Create concat.txt file for FFmpeg
+        const concatContent = segmentFiles.map(file => `file ${file}`).join('\n');
+        await ffmpeg.writeFile('concat.txt', new TextEncoder().encode(concatContent));
+        progressCallback?.('preparing', 0.4, 'Preparing concatenation');
+
+        // Concatenate without re-encoding (much faster!)
+        const outputFileName = `output.${outputFormat}`;
+        console.log('Executing fast concatenation command...');
+        progressCallback?.('concatenating', 0.5, 'Combining segments (no re-encoding)');
+
+        // Using stream copy (-c copy) to avoid re-encoding
+        await ffmpeg.exec([
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', 'concat.txt',
+            '-c', 'copy',
+            outputFileName
+        ]);
+
+        progressCallback?.('processing', 0.8, 'Reading concatenated video');
+
+        // Read the output file
+        const data = await ffmpeg.readFile(outputFileName);
+        const blob = new Blob([data], { type: `video/${outputFormat}` });
+
+        // Clean up
+        for (const file of segmentFiles) {
+            try {
+                await ffmpeg.deleteFile(file);
+            } catch (e) {
+                console.warn(`Could not clean up file ${file}`, e);
+            }
+        }
+        try {
+            await ffmpeg.deleteFile('concat.txt');
+            await ffmpeg.deleteFile(outputFileName);
+        } catch (e) {
+            console.warn('Could not clean up concat files', e);
+        }
+
+        // Release FFmpeg resources if we've completed our high-level operation
+        if (usageCount >= forceReloadThreshold) {
+            await releaseFFmpeg();
+        }
+
+        progressCallback?.('complete', 1, 'Concatenation complete');
+        console.log(`Concatenated video created: ${blob.size} bytes`);
+        return blob;
+    } catch (error) {
+        console.error('Error in fast concatenation:', error);
+        progressCallback?.('error', 0, `Concatenation error: ${error instanceof Error ? error.message : String(error)}`);
+        await releaseFFmpeg(); // Always release on error
+        throw new Error(`Failed to concatenate segments: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}; 

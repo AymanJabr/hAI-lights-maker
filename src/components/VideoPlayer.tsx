@@ -8,10 +8,11 @@ interface VideoPlayerProps {
     onDirectInteraction?: () => void;
     autoPlay?: boolean;
     id?: string;
+    platformFormat?: 'youtube' | 'tiktok' | 'instagram' | 'original';
 }
 
 const VideoPlayer = forwardRef(function VideoPlayer(
-    { src, segments = [], onSegmentClick, onDirectInteraction, autoPlay = false, id }: VideoPlayerProps,
+    { src, segments = [], onSegmentClick, onDirectInteraction, autoPlay = false, id, platformFormat = 'original' }: VideoPlayerProps,
     ref: ForwardedRef<HTMLVideoElement>
 ) {
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -40,6 +41,9 @@ const VideoPlayer = forwardRef(function VideoPlayer(
 
         const handleLoadedMetadata = () => {
             setDuration(video.duration);
+            // Log video dimensions and aspect ratio when metadata is loaded
+            console.log(`Video loaded - Original dimensions: ${video.videoWidth}x${video.videoHeight}`);
+            console.log(`Using platform format: ${platformFormat}, container class: ${getAspectRatioClass()}`);
         };
 
         const handlePlay = () => {
@@ -209,10 +213,25 @@ const VideoPlayer = forwardRef(function VideoPlayer(
         return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
     };
 
+    // Set the aspect ratio based on platform format
+    const getAspectRatioClass = () => {
+        switch (platformFormat) {
+            case 'youtube':
+                return 'aspect-video'; // 16:9
+            case 'tiktok':
+                return 'aspect-[9/16]'; // 9:16
+            case 'instagram':
+                return 'aspect-square'; // 1:1
+            case 'original':
+            default:
+                return 'aspect-auto'; // Original aspect ratio
+        }
+    };
+
     return (
         <div className="w-full h-full">
             <div
-                className="relative w-full h-full bg-black rounded-lg overflow-hidden"
+                className={`relative w-full ${getAspectRatioClass()} bg-black rounded-lg overflow-hidden flex items-center justify-center`}
                 ref={containerRef}
                 onMouseEnter={() => setIsControlsVisible(true)}
                 onMouseLeave={() => setIsControlsVisible(false)}
@@ -220,7 +239,7 @@ const VideoPlayer = forwardRef(function VideoPlayer(
                 <video
                     ref={ref as React.RefObject<HTMLVideoElement> || localVideoRef}
                     src={src}
-                    className="w-full h-full object-cover"
+                    className="max-w-full max-h-full object-contain mx-auto"
                     controls={false}
                     autoPlay={autoPlay}
                     controlsList="nodownload"

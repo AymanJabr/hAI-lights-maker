@@ -77,24 +77,34 @@ export default function ResultsSection({
 
             {/* Combined Highlight Video Section */}
             <div className="mt-10 mb-6">
-                <h2 className="text-xl font-bold mb-6">Combined Highlight Video</h2>
+                <h2 className="text-xl font-bold mb-6">Generated Highlight Video</h2>
                 {Object.keys(highlightUrls).length > 0 ? (
                     <div>
                         <div className="mb-6">
                             <div className="border border-gray-200 rounded-lg p-4">
-                                <h3 className="text-lg font-medium mb-2">Complete Highlight</h3>
+                                <h3 className="text-lg font-medium mb-2">
+                                    {processedVideo.highlightConfig?.targetPlatform === 'original'
+                                        ? 'Original Format Highlight'
+                                        : `${processedVideo.highlightConfig?.targetPlatform?.charAt(0).toUpperCase()}${processedVideo.highlightConfig?.targetPlatform?.slice(1)} Format Highlight`}
+                                </h3>
                                 <VideoPlayer
                                     src={Object.values(highlightUrls)[0]}
                                     segments={processedVideo.segments}
                                     autoPlay={false}
+                                    platformFormat={processedVideo.highlightConfig?.targetPlatform}
                                 />
-                                <a
-                                    href={Object.values(highlightUrls)[0]}
-                                    download={`highlight.mp4`}
-                                    className="mt-4 inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                                >
-                                    Download Highlight Video
-                                </a>
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    {Object.entries(highlightUrls).map(([format, url]) => (
+                                        <a
+                                            key={format}
+                                            href={url}
+                                            download={`highlight-${format}.mp4`}
+                                            className="inline-block py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                                        >
+                                            Download {format.charAt(0).toUpperCase() + format.slice(1)} Highlight
+                                        </a>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -104,20 +114,20 @@ export default function ResultsSection({
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        <span className="text-blue-700">Generating combined highlight video... {Math.round(progress.progress)}%</span>
+                        <span className="text-blue-700">Generating highlight video... {Math.round(progress.progress)}%</span>
                     </div>
                 ) : (
                     <div className="p-4 bg-white border border-gray-200 rounded-lg">
-                        <h3 className="text-lg font-medium mb-2">Create a Combined Video</h3>
+                        <h3 className="text-lg font-medium mb-2">Create a Highlight Video</h3>
                         <p className="text-gray-600 mb-4">
-                            You can combine all segments into a single highlight video. This may take a few moments to process.
+                            Now you can generate a highlight video in your selected format. This may take a few moments to process.
                         </p>
                         <button
                             onClick={onCombineSegments}
                             disabled={isProcessing || !areSegmentsReady}
                             className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
                         >
-                            {isProcessing ? 'Processing...' : !areSegmentsReady ? 'Waiting for segments to process...' : 'Combine Segments Into Video'}
+                            {isProcessing ? 'Processing...' : !areSegmentsReady ? 'Waiting for segments to process...' : 'Generate Highlight Video'}
                         </button>
                     </div>
                 )}

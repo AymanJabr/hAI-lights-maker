@@ -4,13 +4,14 @@ export interface VideoSegment {
     description?: string;
     confidence?: number;
     status?: 'suggested' | 'approved' | 'rejected';
+    targetPlatform?: 'youtube' | 'tiktok' | 'instagram' | 'original';
 }
 
 export interface HighlightConfig {
     mode: 'highlights' | 'epic' | 'main-ideas' | 'funny' | 'custom';
     customPrompt?: string;
     maxDuration?: number;
-    targetPlatform: 'youtube' | 'tiktok' | 'instagram' | 'all';
+    targetPlatform: 'youtube' | 'tiktok' | 'instagram' | 'original';
 }
 
 export interface ProcessedVideo {

@@ -167,22 +167,63 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
                 setLoadingProgress(10);
 
                 // Make sure we have a fresh FFmpeg instance
-                const { createHighlightVideo, releaseFFmpeg } = await import('@/lib/utils/video-utils');
+                const { createHighlightVideo, calculateAdaptiveDimensions, releaseFFmpeg } = await import('@/lib/utils/video-utils');
 
                 if (!isMounted.current) return;
                 setLoadingProgress(30);
                 console.log(`Segment ${index + 1} (${segmentInfo.current}): Starting processing`);
+                console.log(`Segment ${index + 1} has targetPlatform: ${segment.targetPlatform || 'not set'}`);
 
                 try {
                     setLoadingStatus('Processing segment...');
                     setLoadingProgress(40);
+
+                    // Get video metadata first to calculate target dimensions
+                    const { getVideoMetadata } = await import('@/lib/utils/video-utils');
+                    const videoMetadata = await getVideoMetadata(originalVideo);
+                    console.log(`Original video dimensions: ${videoMetadata.width}x${videoMetadata.height}`);
+
+                    // Calculate target dimensions based on the segment's targetPlatform or default to original
+                    let targetDimensions;
+                    if (segment.targetPlatform) {
+                        let aspectRatio: number | null = null;
+
+                        switch (segment.targetPlatform) {
+                            case 'youtube':
+                                aspectRatio = 16 / 9;
+                                break;
+                            case 'tiktok':
+                                aspectRatio = 9 / 16;
+                                break;
+                            case 'instagram':
+                                aspectRatio = 1 / 1;
+                                break;
+                            case 'original':
+                            default:
+                                aspectRatio = null;
+                                break;
+                        }
+
+                        targetDimensions = calculateAdaptiveDimensions(
+                            videoMetadata.width,
+                            videoMetadata.height,
+                            aspectRatio
+                        );
+
+                        console.log(`Using ${segment.targetPlatform} aspect ratio: ${aspectRatio}, dimensions: ${targetDimensions.width}x${targetDimensions.height}`);
+                        console.log(`Aspect ratio transformation: ${videoMetadata.width}x${videoMetadata.height} -> ${targetDimensions.width}x${targetDimensions.height}`);
+                    } else {
+                        console.log('No targetPlatform specified, using original dimensions');
+                        console.log(`Segment properties: ${Object.keys(segment).join(', ')}`);
+                        console.log(`Segment details: start=${segment.start}, end=${segment.end}, targetPlatform=${segment.targetPlatform || 'not set'}`);
+                    }
 
                     // Create a video just for this segment
                     const segmentBlob = await createHighlightVideo(
                         originalVideo,
                         [segment],
                         'mp4',
-                        undefined,
+                        targetDimensions,
                         (step, progress, detail) => {
                             if (isMounted.current) {
                                 setLoadingStatus(detail || step);
@@ -299,7 +340,7 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
             // Remove this task from the queue if it hasn't started yet
             cancelTask(taskId.current);
         };
-    }, [segment, index, originalVideo, ready]);
+    }, [segment, segment.targetPlatform, index, originalVideo, ready]);
 
     const formatTime = (seconds: number) => {
         const date = new Date(seconds * 1000);
@@ -319,6 +360,21 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
         document.body.removeChild(a);
     };
 
+    // Get aspect ratio class based on platform
+    const getAspectRatioClass = () => {
+        switch (segment.targetPlatform) {
+            case 'youtube':
+                return 'aspect-video'; // 16:9
+            case 'tiktok':
+                return 'aspect-[9/16]'; // 9:16
+            case 'instagram':
+                return 'aspect-square'; // 1:1
+            case 'original':
+            default:
+                return 'aspect-video'; // Default to 16:9 if not specified
+        }
+    };
+
     return (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
             <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
@@ -329,7 +385,7 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
                 </div>
             </div>
 
-            <div className="aspect-video bg-black relative">
+            <div className={`bg-black relative ${getAspectRatioClass()}`}>
                 {isLoading ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
                         <svg className="animate-spin h-8 w-8 text-white mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -354,6 +410,7 @@ export default function SegmentPreview({ segment, index, originalVideo, ready = 
                         autoPlay={false}
                         key={`video-${index}-${segmentInfo.current}`}
                         id={`segment-preview-${index}`}
+                        platformFormat={segment.targetPlatform}
                     />
                 )}
             </div>

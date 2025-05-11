@@ -33,9 +33,9 @@ export default function HighlightConfig({ onChange, initialConfig, disabled = fa
 
     const platformOptions = [
         { value: 'youtube', label: 'YouTube (16:9)', description: 'Best for YouTube and standard video' },
-        { value: 'tiktok', label: 'TikTok/Stories (9:16)', description: 'Vertical format for mobile platforms' },
-        { value: 'instagram', label: 'Instagram (1:1)', description: 'Square format for feed posts' },
-        { value: 'all', label: 'All Formats', description: 'Generate all formats (takes longer)' },
+        { value: 'tiktok', label: 'TikTok Stories (9:16)', description: 'Vertical format for mobile platforms' },
+        { value: 'instagram', label: 'Instagram Reels(1:1)', description: 'Square format for feed posts' },
+        { value: 'original', label: 'Original Format', description: 'Preserve original video dimensions' },
     ];
 
     return (

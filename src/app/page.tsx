@@ -110,14 +110,20 @@ export default function Home() {
     };
 
     const handleApproveSegments = (segments: VideoSegment[]) => {
-        setApprovedSegments(segments);
+        // Apply the current targetPlatform to all segments
+        const segmentsWithPlatform = segments.map(segment => ({
+            ...segment,
+            targetPlatform: highlightConfig.targetPlatform
+        }));
+
+        setApprovedSegments(segmentsWithPlatform);
 
         // Create the processed video object using the approved segments
         if (videoFile) {
             const processedVideoWithApprovedSegments: ProcessedVideo = {
                 id: processedVideo?.id || crypto.randomUUID(),
                 originalFile: videoFile,
-                segments: segments,
+                segments: segmentsWithPlatform,
                 highlightConfig,
                 transcript
             };
@@ -131,12 +137,34 @@ export default function Home() {
         if (!videoProcessor || !processedVideo || !apiConfig?.apiKey) return;
 
         try {
-            const urls = await videoProcessor.combineSegments(processedVideo);
-            if (urls) {
-                setHighlightUrls(urls);
+            let outputUrls: Record<string, string> = {};
+
+            // Use format-specific generation based on the selected targetPlatform
+            if (processedVideo.highlightConfig?.targetPlatform) {
+                console.log(`Using format-specific video generation for ${processedVideo.highlightConfig.targetPlatform}`);
+                const formatOutputs = await videoProcessor.createFormatSpecificVideos(processedVideo);
+
+                // Convert Blobs to URLs
+                if (formatOutputs) {
+                    Object.entries(formatOutputs).forEach(([key, blob]) => {
+                        outputUrls[key] = URL.createObjectURL(blob);
+                    });
+                }
+            } else {
+                // Fallback to the original combine method if no target platform specified
+                console.log('Using standard segment combination');
+                const combined = await videoProcessor.combineSegments(processedVideo);
+                if (combined) {
+                    outputUrls = combined;
+                }
+            }
+
+            if (Object.keys(outputUrls).length > 0) {
+                setHighlightUrls(outputUrls);
             }
         } catch (err) {
-            console.error('Error combining segments:', err);
+            console.error('Error creating videos:', err);
+            setError(`Failed to create video: ${err instanceof Error ? err.message : String(err)}`);
         }
     };
 
