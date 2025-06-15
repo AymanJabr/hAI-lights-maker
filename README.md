@@ -18,7 +18,6 @@ HAI-Lights Maker is a web application that uses AI to analyze videos and create 
 - **Custom Highlight Styles**: Choose different vibes for your highlight reel or create a custom prompt
 - **Multiple Export Formats**: Generate videos optimized for different platforms (YouTube, TikTok, Instagram)
 - **Client-side Processing**: Video processing happens in the browser using WebAssembly
-- **Face Detection**: Identifies speaker close-ups as potential highlight moments
 - **Segment-based Workflow**: Process and review individual segments before combining them
 - **In-browser Video Player**: Feature-rich video player with custom controls
 - **Responsive UI**: Works across different devices and screen sizes
@@ -91,7 +90,6 @@ HAI-Lights Maker implements several security measures to protect your OpenAI API
 - **Secure transmission**: Your API key is only transmitted between your browser and the API endpoints on this server, never to third-party services.
 - **Server-side validation**: Each API request validates the API key again before proceeding.
 
-> **Note**: While we take steps to protect your API key, for production use, consider implementing more robust security measures including rate limiting, proper secret management, and proxy services.
 
 ## Segment Processing Workflow
 
