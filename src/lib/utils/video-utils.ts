@@ -59,6 +59,7 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
             const instance = new FFmpeg();
 
             // Add an internal logger to capture messages from the FFmpeg worker
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (instance as any).setLogger(({ type, message }: { type: string; message: any; }) => {
                 console.log(`[FFmpeg internal log - ${type}]:`, message);
             });
