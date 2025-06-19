@@ -57,14 +57,29 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
     loadingPromise = (async () => {
         try {
             const instance = new FFmpeg();
+
+            // Add an internal logger to capture messages from the FFmpeg worker
+            (instance as any).setLogger(({ type, message }: { type: string; message: any; }) => {
+                console.log(`[FFmpeg internal log - ${type}]:`, message);
+            });
+
             console.log('Loading FFmpeg core...');
 
             // Load FFmpeg with self-hosted URLs from the config file.
+            const coreURL = FFMPEG_CORE_URL;
+            const wasmURL = FFMPEG_WASM_URL;
+
+            // Add detailed logging to verify the URLs being used in production
+            console.log(`Attempting to load FFmpeg with self-hosted URLs:`, {
+                coreURL,
+                wasmURL,
+            });
+
             // This is crucial for production builds to comply with Cross-Origin-Embedder-Policy (COEP).
             // By default, FFmpeg tries to load from a CDN, which is blocked by COEP.
             await instance.load({
-                coreURL: FFMPEG_CORE_URL,
-                wasmURL: FFMPEG_WASM_URL,
+                coreURL: coreURL,
+                wasmURL: wasmURL,
             });
 
             console.log('FFmpeg loaded successfully');
@@ -74,7 +89,8 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
             usageCount = 1;
             return instance;
         } catch (error) {
-            console.error('Failed to load FFmpeg:', error);
+            // Enhanced error logging to capture the full error object
+            console.error('FFMPEG_LOAD_FAILED: A critical error occurred while loading FFmpeg.', error);
             // Reset state on error
             ffmpeg = null;
             throw new Error(`FFmpeg loading failed: ${error instanceof Error ? error.message : String(error)}`);
