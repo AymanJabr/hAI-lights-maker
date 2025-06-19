@@ -32,15 +32,13 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
         }
 
         try {
-            // Import FFmpeg dynamically
-            const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+            // Dynamically import dependencies only when needed for performance.
+            const { loadFFmpeg } = await import('@/lib/utils/video-utils');
             const { fetchFile } = await import('@ffmpeg/util');
 
-            // Create a new FFmpeg instance
-            const ffmpeg = new FFmpeg();
-            console.log('Loading FFmpeg for audio splitting');
-            await ffmpeg.load();
-            console.log('FFmpeg loaded successfully');
+            // Use the managed FFmpeg instance for audio splitting
+            const ffmpeg = await loadFFmpeg();
+            console.log('Managed FFmpeg instance loaded for audio splitting');
 
             // Write input file to FFmpeg filesystem
             const inputFileName = 'input.mp3';
@@ -88,8 +86,7 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
 
             // Clean up and release FFmpeg
             await ffmpeg.deleteFile(inputFileName);
-            await ffmpeg.terminate();
-            console.log('FFmpeg resources released');
+            console.log('FFmpeg filesystem cleaned for audio splitting');
 
             return chunks;
         } catch (error) {

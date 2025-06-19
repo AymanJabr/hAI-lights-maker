@@ -59,15 +59,13 @@ export function useVideoProcessor({
             try {
                 console.log('Extracting audio from video using FFmpeg');
 
-                // Import FFmpeg dynamically
-                const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+                // Import FFmpeg dynamically and load our managed instance
+                const { loadFFmpeg } = await import('@/lib/utils/video-utils');
                 const { fetchFile } = await import('@ffmpeg/util');
 
-                // Create a new FFmpeg instance
-                const ffmpeg = new FFmpeg();
-                console.log('Loading FFmpeg for audio extraction');
-                await ffmpeg.load();
-                console.log('FFmpeg loaded successfully');
+                // Use the managed FFmpeg instance from our utility function
+                const ffmpeg = await loadFFmpeg();
+                console.log('Managed FFmpeg instance loaded for audio extraction');
 
                 // Write the video file to FFmpeg filesystem
                 await ffmpeg.writeFile('input.mp4', await fetchFile(videoFile));
@@ -92,11 +90,11 @@ export function useVideoProcessor({
                     throw new Error('Failed to extract audio: output data is empty or invalid');
                 }
 
-                // Clean up
+                // Clean up files but don't terminate the managed instance here.
+                // The video-utils manager will handle termination.
                 await ffmpeg.deleteFile('input.mp4');
                 await ffmpeg.deleteFile('output.mp3');
-                await ffmpeg.terminate();
-                console.log('FFmpeg resources released');
+                console.log('FFmpeg filesystem cleaned for audio extraction');
             } catch (error) {
                 console.error('Error extracting audio:', error);
                 throw new Error(`Failed to extract audio: ${error instanceof Error ? error.message : String(error)}`);

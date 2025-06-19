@@ -76,6 +76,7 @@ const VideoPlayer = forwardRef(function VideoPlayer(
             // Log video dimensions and aspect ratio when metadata is loaded
             console.log(`Video loaded - Original dimensions: ${video.videoWidth}x${video.videoHeight}`);
             console.log(`Using platform format: ${platformFormat}, container class: ${getAspectRatioClass()}`);
+            console.log("Please confirm the segments are correct");
         };
 
         const handlePlay = () => {

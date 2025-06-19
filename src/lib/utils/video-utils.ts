@@ -1,6 +1,7 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import { VideoMetadata, VideoSegment } from '@/types';
+import { FFMPEG_CORE_URL, FFMPEG_WASM_URL } from '@/lib/config';
 
 // Define a global type extension for the window object
 declare global {
@@ -58,8 +59,13 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
             const instance = new FFmpeg();
             console.log('Loading FFmpeg core...');
 
-            // Use dynamically imported files from node_modules
-            await instance.load();
+            // Load FFmpeg with self-hosted URLs from the config file.
+            // This is crucial for production builds to comply with Cross-Origin-Embedder-Policy (COEP).
+            // By default, FFmpeg tries to load from a CDN, which is blocked by COEP.
+            await instance.load({
+                coreURL: FFMPEG_CORE_URL,
+                wasmURL: FFMPEG_WASM_URL,
+            });
 
             console.log('FFmpeg loaded successfully');
             ffmpeg = instance;
@@ -90,7 +96,7 @@ export async function releaseFFmpeg(): Promise<void> {
 
         try {
             // Try to terminate the FFmpeg worker
-            await ffmpeg.terminate();
+            ffmpeg.terminate();
         } catch (error) {
             console.warn('Error terminating FFmpeg worker:', error);
         }
