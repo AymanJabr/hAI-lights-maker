@@ -1,0 +1,14 @@
+# netlify.toml
+
+# Redirects and headers are inherited by all deploys,
+# including production, branch deploys, and Deploy Previews.
+
+# The following headers are required for ffmpeg.wasm to work correctly
+# by enabling SharedArrayBuffer.
+[[headers]]
+  # Apply these headers to all pages and assets
+  for = "/*"
+  [headers.values]
+    # Enables a cross-origin isolated state
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp" 
