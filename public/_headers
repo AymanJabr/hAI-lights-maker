@@ -5,6 +5,3 @@
 # high-performance web APIs.
 
 # This rule applies the necessary headers to all files served by the site.
-/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
