@@ -1,0 +1,10 @@
+# _headers
+
+# The following headers are required for ffmpeg.wasm to work correctly by
+# enabling SharedArrayBuffer, which is a security requirement for many
+# high-performance web APIs.
+
+# This rule applies the necessary headers to all files served by the site.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
