@@ -108,7 +108,23 @@ export function useVideoProcessor({
             const transcriptionStart = performance.now();
             let transcriptionResult;
             try {
-                transcriptionResult = await transcribeAudio(audioBlob);
+                // Step 2.1: Upload the audio blob to Vercel Blob storage
+                console.log("Uploading audio blob to storage...");
+                updateProgress('transcribing', 25, 'Uploading audio for transcription...');
+                const uploadResponse = await fetch(`/api/upload?filename=${videoId}-audio.mp3`, {
+                    method: 'POST',
+                    body: audioBlob,
+                });
+
+                if (!uploadResponse.ok) {
+                    throw new Error('Failed to upload audio file.');
+                }
+
+                const { url: audioUrl } = await uploadResponse.json();
+                console.log(`Audio uploaded successfully: ${audioUrl}`);
+                updateProgress('transcribing', 30, 'Audio uploaded. Starting transcription...');
+
+                transcriptionResult = await transcribeAudio(audioUrl);
                 const transcriptionTime = ((performance.now() - transcriptionStart) / 1000).toFixed(2);
 
                 console.log(`Transcription completed in ${transcriptionTime}s`);
