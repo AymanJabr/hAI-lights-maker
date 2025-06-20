@@ -1,5 +1,5 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { VideoMetadata, VideoSegment } from '@/types';
 import { FFMPEG_CORE_URL, FFMPEG_WASM_URL } from '@/lib/config';
 
@@ -78,9 +78,15 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
 
             // This is crucial for production builds to comply with Cross-Origin-Embedder-Policy (COEP).
             // By default, FFmpeg tries to load from a CDN, which is blocked by COEP.
+            const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
             await instance.load({
-                coreURL: coreURL,
-                wasmURL: wasmURL,
+                // coreURL: coreURL,
+                // wasmURL: wasmURL,
+                coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+                wasmURL: await toBlobURL(
+                    `${baseURL}/ffmpeg-core.wasm`,
+                    "application/wasm"
+                ),
             });
 
             console.log('FFmpeg loaded successfully');
