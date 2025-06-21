@@ -60,9 +60,9 @@ export async function loadFFmpeg(): Promise<FFmpeg> {
 
             // Add a listener to capture log messages from the FFmpeg worker.
             // This is the correct way to get logs from the FFmpeg wrapper class.
-            instance.on('log', ({ type, message }: { type: string; message: string }) => {
-                console.log(`[FFmpeg internal log - ${type}]:`, message);
-            });
+            // instance.on('log', ({ type, message }: { type: string; message: string }) => {
+            //     console.log(`[FFmpeg internal log - ${type}]:`, message);
+            // });
 
             console.log('Loading FFmpeg core...');
 

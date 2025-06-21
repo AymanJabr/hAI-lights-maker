@@ -65,13 +65,18 @@ export function useOpenAI({ apiKey }: UseOpenAIProps = {}) {
         });
 
         if (!response.ok) {
-            let errorText = '';
             const responseStatus = response.status;
+            const errorBody = await response.text(); // Read the body once as text
+            let errorText = errorBody;
+
             try {
-                const errorJson = await response.json();
-                errorText = errorJson.error || JSON.stringify(errorJson);
-            } catch (e) {
-                errorText = await response.text();
+                // Try to parse the text as JSON for a more structured error message
+                const errorJson = JSON.parse(errorBody);
+                errorText = errorJson.error || errorBody;
+            } catch (parseError) {
+                // If parsing fails, it's not a JSON response.
+                // We'll use the raw errorBody text, which is already assigned to errorText.
+                console.debug("Could not parse error response as JSON:", parseError);
             }
             console.error(`Transcription API error (${responseStatus}):`, errorText);
 
