@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { useOpenAI } from '@/hooks/useOpenAI';
 import { ProcessedVideo, HighlightConfig, VideoMetadata, ProgressState, TranscriptionResult } from '@/types';
+import { upload } from '@vercel/blob/client';
 
 interface VideoProcessorProps {
     apiKey: string;
@@ -108,23 +109,19 @@ export function useVideoProcessor({
             const transcriptionStart = performance.now();
             let transcriptionResult;
             try {
-                // Step 2.1: Upload the audio blob to Vercel Blob storage
-                console.log("Uploading audio blob to storage...");
+                // Step 2.1: Upload the audio blob to Vercel Blob storage using the client-side helper
+                console.log("Uploading audio blob to storage via client...");
                 updateProgress('transcribing', 25, 'Uploading audio for transcription...');
-                const uploadResponse = await fetch(`/api/upload?filename=${videoId}-audio.mp3`, {
-                    method: 'POST',
-                    body: audioBlob,
+
+                const blob = await upload(`${videoId}-audio.mp3`, audioBlob, {
+                    access: 'public',
+                    handleUploadUrl: '/api/upload',
                 });
 
-                if (!uploadResponse.ok) {
-                    throw new Error('Failed to upload audio file.');
-                }
-
-                const { url: audioUrl } = await uploadResponse.json();
-                console.log(`Audio uploaded successfully: ${audioUrl}`);
+                console.log(`Audio uploaded successfully: ${blob.url}`);
                 updateProgress('transcribing', 30, 'Audio uploaded. Starting transcription...');
 
-                transcriptionResult = await transcribeAudio(audioUrl);
+                transcriptionResult = await transcribeAudio(blob.url);
                 const transcriptionTime = ((performance.now() - transcriptionStart) / 1000).toFixed(2);
 
                 console.log(`Transcription completed in ${transcriptionTime}s`);
