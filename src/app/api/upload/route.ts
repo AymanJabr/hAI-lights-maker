@@ -10,10 +10,8 @@ export async function POST(
         const jsonResponse = await handleUpload({
             body,
             request,
-            onBeforeGenerateToken: async (pathname: string) => {
-                // This is where you can add validation or any other logic
-                // before a client is allowed to upload a file.
-                // For now, we'll just allow all uploads.
+            onBeforeGenerateToken: async () => {
+                // Validation logic here
                 return {
                     allowedContentTypes: ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/webm'],
                 };
